@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import MuJoCoViewer from '@/components/MuJoCoViewer';
+import MuJoCoViewer, { ViewerOptions } from '@/components/MuJoCoViewer';
 import ModelSelector from '@/components/ModelSelector';
 import TrajectorySelector from '@/components/TrajectorySelector';
+import ViewerOptionsPanel from '@/components/ViewerOptions';
 import { ModelMetadata, TrajectoryMetadata } from '@/lib/api';
 
 export default function VisualizePage() {
@@ -14,6 +15,10 @@ export default function VisualizePage() {
   const [selectedModelXML, setSelectedModelXML] = useState<string | undefined>();
   const [selectedModel, setSelectedModel] = useState<ModelMetadata | null>(null);
   const [selectedTrajectory, setSelectedTrajectory] = useState<TrajectoryMetadata | null>(null);
+  const [viewerOptions, setViewerOptions] = useState<ViewerOptions>({
+    showFixedAxes: true,
+    showMovingAxes: true,
+  });
 
   // Redirect to login if not authenticated
   if (!isLoading && !isAuthenticated) {
@@ -85,12 +90,21 @@ export default function VisualizePage() {
               selectedTrajectoryId={selectedTrajectory?.id}
             />
           </div>
+
+          {/* Viewer Options Section */}
+          <div className="border-b border-gray-700">
+            <ViewerOptionsPanel
+              options={viewerOptions}
+              onChange={setViewerOptions}
+            />
+          </div>
         </div>
 
         {/* 3D Viewer */}
         <div className="flex-1 relative">
           <MuJoCoViewer
             modelXML={selectedModelXML}
+            options={viewerOptions}
             onModelLoaded={() => console.log('Model loaded successfully')}
             onError={(error) => console.error('Viewer error:', error)}
           />

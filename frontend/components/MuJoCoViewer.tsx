@@ -12,13 +12,19 @@ import {
 } from '@/lib/mujoco-loader';
 import { modelApi } from '@/lib/api';
 
+export interface ViewerOptions {
+  showFixedAxes: boolean;
+  showMovingAxes: boolean;
+}
+
 interface MuJoCoViewerProps {
   modelXML?: string;
+  options?: ViewerOptions;
   onModelLoaded?: () => void;
   onError?: (error: string) => void;
 }
 
-export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoCoViewerProps) {
+export default function MuJoCoViewer({ modelXML, options, onModelLoaded, onError }: MuJoCoViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -167,9 +173,10 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         controls.update();
         controlsRef.current = controls;
 
-        // Add fixed world frame axes at origin
+        // Add fixed world frame axes at origin (will be toggled via options)
         const worldAxes = new THREE.AxesHelper(0.5);
         worldAxes.name = 'World Frame';
+        worldAxes.visible = options?.showFixedAxes ?? true;
         scene.add(worldAxes);
 
         // Set up axis helper scene for corner display
@@ -289,6 +296,17 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
       // Don't reset isInitializedRef - keep it true to prevent re-initialization on Strict Mode remount
     };
   }, []);
+
+  // Handle viewer options changes
+  useEffect(() => {
+    if (!sceneRef.current) return;
+
+    // Toggle fixed world axes
+    const worldAxes = sceneRef.current.getObjectByName('World Frame');
+    if (worldAxes) {
+      worldAxes.visible = options?.showFixedAxes ?? true;
+    }
+  }, [options?.showFixedAxes, options?.showMovingAxes]);
 
   // Handle model loading when modelXML changes
   useEffect(() => {
@@ -513,8 +531,9 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
         renderer.render(sceneRef.current, cameraRef.current);
 
-        // Render axis helper in top-right corner
-        if (axisSceneRef.current && axisCameraRef.current) {
+        // Render axis helper in top-right corner (if enabled)
+        const showMoving = options?.showMovingAxes ?? true;
+        if (showMoving && axisSceneRef.current && axisCameraRef.current) {
           const size = 128; // Size of the inset viewport in pixels
           const margin = 10;
 
