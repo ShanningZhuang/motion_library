@@ -178,6 +178,9 @@ export function getDefaultSceneXML(): string {
   <worldbody>
     <light directional="true" diffuse=".8 .8 .8" specular="0.2 0.2 0.2" pos="0 0 3" dir="0 0 -1"/>
     <geom name="floor" type="plane" size="5 5 0.1" rgba="0.8 0.8 0.8 1"/>
+    <body name="body" pos="0 0 0">
+      <geom name="geom" type="sphere" size="0.1" rgba="1 0 0 1"/>
+    </body>
   </worldbody>
 </mujoco>
   `.trim();

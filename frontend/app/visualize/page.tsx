@@ -42,9 +42,9 @@ export default function VisualizePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="bg-gray-800 shadow">
+      <header className="bg-gray-800 shadow flex-shrink-0">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button
@@ -67,9 +67,9 @@ export default function VisualizePage() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Sidebar */}
-        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto">
+        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           {/* Models Section */}
           <div className="border-b border-gray-700">
             <ModelSelector

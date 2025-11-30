@@ -28,6 +28,7 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
   const dataRef = useRef<any>(null);
   const bodiesRef = useRef<{ [key: number]: THREE.Group }>({});
   const animationIdRef = useRef<number | null>(null);
+  const isInitializedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +37,18 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // If already initialized, don't re-initialize (handles React Strict Mode double mount)
+    if (isInitializedRef.current) {
+      // But ensure the existing canvas is still in the DOM
+      if (rendererRef.current && !containerRef.current.contains(rendererRef.current.domElement)) {
+        containerRef.current.appendChild(rendererRef.current.domElement);
+      }
+      return;
+    }
+
     const initViewer = async () => {
       try {
+        isInitializedRef.current = true;
         setLoading(true);
         setError(null);
 
@@ -51,10 +62,14 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         scene.fog = new THREE.Fog(0x243447, 15, 25);
         sceneRef.current = scene;
 
+        // Get container dimensions
+        const width = containerRef.current!.clientWidth || window.innerWidth;
+        const height = containerRef.current!.clientHeight || window.innerHeight;
+
         // Set up camera
         const camera = new THREE.PerspectiveCamera(
           45,
-          containerRef.current.clientWidth / containerRef.current.clientHeight,
+          width / height,
           0.001,
           100
         );
@@ -74,10 +89,11 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         // Set up renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+        renderer.setSize(width, height);
+
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        containerRef.current.appendChild(renderer.domElement);
+        containerRef.current!.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 
         // Set up orbit controls
@@ -120,13 +136,16 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
       if (controlsRef.current) {
         controlsRef.current.dispose();
       }
-      if (rendererRef.current && containerRef.current) {
-        containerRef.current.removeChild(rendererRef.current.domElement);
+      if (rendererRef.current) {
+        if (containerRef.current && rendererRef.current.domElement.parentNode === containerRef.current) {
+          containerRef.current.removeChild(rendererRef.current.domElement);
+        }
         rendererRef.current.dispose();
       }
       if (modelRef.current && dataRef.current) {
         cleanupModel(modelRef.current, dataRef.current);
       }
+      // Don't reset isInitializedRef - keep it true to prevent re-initialization on Strict Mode remount
     };
   }, []);
 
@@ -334,20 +353,20 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
   };
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={containerRef} className="w-full h-full" />
+    <div className="absolute inset-0">
+      <div ref={containerRef} className="absolute inset-0" />
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75">
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
           <div className="text-white text-lg">Loading MuJoCo...</div>
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75">
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
           <div className="text-red-400 text-lg">{error}</div>
         </div>
       )}
       {!loading && !error && !modelXML && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
           <div className="text-gray-400 text-lg">Select a model to begin</div>
         </div>
       )}
