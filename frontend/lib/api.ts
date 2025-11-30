@@ -131,4 +131,14 @@ export const modelApi = {
   delete: async (id: string): Promise<void> => {
     await api.delete(`/api/models/${id}`);
   },
+  listFiles: async (id: string): Promise<string[]> => {
+    const response = await api.get(`/api/models/${id}/files`);
+    return response.data.files;
+  },
+  getFile: async (id: string, filePath: string): Promise<Blob> => {
+    const response = await api.get(`/api/models/${id}/files/${encodeURIComponent(filePath)}`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };

@@ -235,6 +235,45 @@ async def delete_model(
         raise HTTPException(status_code=404, detail="Model not found")
 
 
+@app.get("/api/models/{model_id}/files")
+async def list_model_files(
+    model_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    """List all files in a model's directory."""
+    files = storage.get_model_directory_files(model_id)
+    if not files:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return {"files": files}
+
+
+@app.get("/api/models/{model_id}/files/{file_path:path}")
+async def get_model_file(
+    model_id: str,
+    file_path: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Get a specific file from a model's directory."""
+    file_abs_path = storage.get_file_in_model_directory(model_id, file_path)
+    if not file_abs_path:
+        raise HTTPException(status_code=404, detail="File not found in model directory")
+
+    # Determine media type based on file extension
+    media_type = "application/octet-stream"
+    if file_abs_path.suffix == '.xml':
+        media_type = "application/xml"
+    elif file_abs_path.suffix == '.stl':
+        media_type = "model/stl"
+    elif file_abs_path.suffix in ['.obj', '.dae', '.mesh']:
+        media_type = "model/mesh"
+
+    return FileResponse(
+        path=file_abs_path,
+        media_type=media_type,
+        filename=file_abs_path.name
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

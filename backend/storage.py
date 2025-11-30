@@ -226,6 +226,64 @@ class StorageManager:
             return True
         return False
 
+    def get_model_directory_files(self, model_id: str) -> List[str]:
+        """Get all files in a model's directory tree (relative paths)."""
+        main_model_path = self.get_model(model_id)
+        if not main_model_path:
+            return []
+
+        # Determine model directory
+        if main_model_path.parent == self.models_dir:
+            # Single file in root, only return the file itself
+            return [main_model_path.name]
+        else:
+            # Model in a subdirectory, return all files in that directory tree
+            model_dir = main_model_path.parent
+            files = []
+
+            for file_path in model_dir.rglob('*'):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(self.models_dir)
+                    files.append(str(rel_path))
+
+            return files
+
+    def get_file_in_model_directory(self, model_id: str, file_relative_path: str) -> Optional[Path]:
+        """Get a specific file from a model directory by relative path."""
+        main_model_path = self.get_model(model_id)
+        if not main_model_path:
+            return None
+
+        # Construct absolute path
+        requested_file = self.models_dir / file_relative_path
+
+        # Security check: ensure file is within models directory
+        try:
+            requested_file.resolve().relative_to(self.models_dir.resolve())
+        except ValueError:
+            # Path is outside models directory
+            return None
+
+        # Check if file exists
+        if not requested_file.exists() or not requested_file.is_file():
+            return None
+
+        # Verify it's in the same model directory
+        if main_model_path.parent == self.models_dir:
+            # Single file model - only allow the main file
+            if requested_file == main_model_path:
+                return requested_file
+        else:
+            # Multi-file model - allow any file in the model directory
+            model_dir = main_model_path.parent
+            try:
+                requested_file.resolve().relative_to(model_dir.resolve())
+                return requested_file
+            except ValueError:
+                return None
+
+        return None
+
 
 # Global storage manager instance
 storage = StorageManager()

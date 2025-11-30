@@ -6,11 +6,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   loadMuJoCo,
   loadModelFromXML,
+  loadModelWithDependencies,
   cleanupModel,
   getDefaultSceneXML,
   MuJoCoModule,
 } from '@/lib/mujoco-loader';
-import { modelApi } from '@/lib/api';
+import { modelApi, ModelMetadata } from '@/lib/api';
 
 export interface ViewerOptions {
   showFixedAxes: boolean;
@@ -19,12 +20,14 @@ export interface ViewerOptions {
 
 interface MuJoCoViewerProps {
   modelXML?: string;
+  modelId?: string;
+  modelMetadata?: ModelMetadata;
   options?: ViewerOptions;
   onModelLoaded?: () => void;
   onError?: (error: string) => void;
 }
 
-export default function MuJoCoViewer({ modelXML, options, onModelLoaded, onError }: MuJoCoViewerProps) {
+export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options, onModelLoaded, onError }: MuJoCoViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -237,7 +240,13 @@ export default function MuJoCoViewer({ modelXML, options, onModelLoaded, onError
             const modelBlob = await modelApi.get(defaultModel.id);
             const defaultXML = await modelBlob.text();
 
-            const { model, data } = loadModelFromXML(mujoco, defaultXML);
+            // Use new loading system that handles dependencies
+            const { model, data } = await loadModelWithDependencies(
+              mujoco,
+              defaultModel.id,
+              defaultXML,
+              defaultModel.relative_path
+            );
             modelRef.current = model;
             dataRef.current = data;
             createSceneObjects(scene, mujoco, model, data);
@@ -326,8 +335,22 @@ export default function MuJoCoViewer({ modelXML, options, onModelLoaded, onError
         console.log('Clearing previous scene objects...');
         clearSceneObjects();
 
-        // Load new model
-        const { model, data } = loadModelFromXML(mujocoRef.current!, modelXML);
+        // Load new model with dependencies if we have model metadata
+        let model, data;
+        if (modelId && modelMetadata) {
+          console.log('Loading model with dependencies:', modelMetadata.relative_path);
+          ({ model, data } = await loadModelWithDependencies(
+            mujocoRef.current!,
+            modelId,
+            modelXML,
+            modelMetadata.relative_path
+          ));
+        } else {
+          // Fallback to simple loading for backward compatibility
+          console.log('Loading model without dependencies (simple mode)');
+          ({ model, data } = loadModelFromXML(mujocoRef.current!, modelXML));
+        }
+
         modelRef.current = model;
         dataRef.current = data;
 
@@ -348,7 +371,7 @@ export default function MuJoCoViewer({ modelXML, options, onModelLoaded, onError
     };
 
     loadNewModel();
-  }, [modelXML]);
+  }, [modelXML, modelId, modelMetadata]);
 
   // Handle window resize
   useEffect(() => {

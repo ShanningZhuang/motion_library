@@ -104,6 +104,8 @@ export default function VisualizePage() {
         <div className="flex-1 relative">
           <MuJoCoViewer
             modelXML={selectedModelXML}
+            modelId={selectedModel?.id}
+            modelMetadata={selectedModel ?? undefined}
             options={viewerOptions}
             onModelLoaded={() => console.log('Model loaded successfully')}
             onError={(error) => console.error('Viewer error:', error)}

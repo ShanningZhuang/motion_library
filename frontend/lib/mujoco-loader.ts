@@ -132,7 +132,7 @@ export function writeFileToVFS(
   try {
     // Create directory structure if needed
     const parts = filepath.split('/').filter(p => p);
-    let currentPath = '/working';
+    let currentPath = '';
 
     for (let i = 0; i < parts.length - 1; i++) {
       currentPath += '/' + parts[i];
@@ -146,6 +146,94 @@ export function writeFileToVFS(
   } catch (error) {
     console.error(`Failed to write file ${filepath} to VFS:`, error);
     throw error;
+  }
+}
+
+/**
+ * Load a MuJoCo model with all its dependencies (includes, meshes, etc.)
+ * @param mujoco - The MuJoCo WASM module instance
+ * @param modelId - Model ID for fetching files from backend
+ * @param mainXmlContent - Main XML file content
+ * @param modelRelativePath - Relative path of main XML (e.g., "MS-Human-700/model.xml")
+ * @returns MuJoCo model and data objects
+ */
+export async function loadModelWithDependencies(
+  mujoco: MuJoCoModule,
+  modelId: string,
+  mainXmlContent: string,
+  modelRelativePath: string
+): Promise<{ model: any; data: any }> {
+  try {
+    // Import modelApi dynamically to avoid circular dependencies
+    const { modelApi } = await import('./api');
+
+    // Get list of all files in the model directory
+    const allFiles = await modelApi.listFiles(modelId);
+
+    console.log(`Loading model with ${allFiles.length} file(s):`, allFiles);
+
+    // Write all files to VFS
+    for (const filePath of allFiles) {
+      if (filePath === modelRelativePath) {
+        // Main XML file - use provided content
+        writeFileToVFS(mujoco, `/working/${filePath}`, mainXmlContent);
+      } else {
+        // Dependency file - fetch from backend
+        try {
+          const fileBlob = await modelApi.getFile(modelId, filePath);
+          const fileContent = await fileBlob.arrayBuffer();
+          writeFileToVFS(mujoco, `/working/${filePath}`, new Uint8Array(fileContent));
+          console.log(`Loaded dependency: ${filePath}`);
+        } catch (error) {
+          console.warn(`Failed to load dependency ${filePath}:`, error);
+          // Continue loading other files
+        }
+      }
+    }
+
+    // Debug: List all files in VFS /working directory
+    console.log('=== VFS Contents ===');
+    function listVFSDirectory(path: string, indent = ''): void {
+      try {
+        const contents = mujoco.FS.readdir(path);
+        for (const item of contents) {
+          if (item === '.' || item === '..') continue;
+          const itemPath = `${path}/${item}`;
+          const stat = mujoco.FS.stat(itemPath);
+          if (mujoco.FS.isDir(stat.mode)) {
+            console.log(`${indent}📁 ${item}/`);
+            listVFSDirectory(itemPath, indent + '  ');
+          } else {
+            console.log(`${indent}📄 ${item} (${stat.size} bytes)`);
+          }
+        }
+      } catch (e) {
+        console.log(`${indent}❌ Error reading ${path}:`, e);
+      }
+    }
+    listVFSDirectory('/working');
+    console.log('===================');
+
+    // Change working directory to the model's directory
+    // This is crucial for resolving relative paths in <include> tags
+    const modelDir = `/working/${modelRelativePath.substring(0, modelRelativePath.lastIndexOf('/'))}`;
+    const modelFilename = modelRelativePath.substring(modelRelativePath.lastIndexOf('/') + 1);
+
+    console.log(`Changing VFS working directory to: ${modelDir}`);
+    mujoco.FS.chdir(modelDir);
+
+    // Load model from XML file (using relative path since we're in the right directory)
+    const model = mujoco.MjModel.mj_loadXML(modelFilename);
+    const data = new mujoco.MjData(model);
+
+    // Change back to root directory
+    mujoco.FS.chdir('/');
+
+    console.log('Model loaded successfully with all dependencies');
+    return { model, data };
+  } catch (error) {
+    console.error('Failed to load model with dependencies:', error);
+    throw new Error(`Failed to load MuJoCo model: ${error}`);
   }
 }
 
