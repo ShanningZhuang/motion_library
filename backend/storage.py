@@ -14,10 +14,14 @@ class StorageManager:
     def __init__(self):
         self.models_dir = settings.get_models_path()
         self.trajectories_dir = settings.get_trajectories_path()
+        self.base_path = Path(settings.DATA_DIR).resolve()
+        self.thumbnails_dir = self.base_path / "thumbnails"
 
         # Ensure directories exist
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.trajectories_dir.mkdir(parents=True, exist_ok=True)
+        (self.thumbnails_dir / "models").mkdir(parents=True, exist_ok=True)
+        (self.thumbnails_dir / "trajectories").mkdir(parents=True, exist_ok=True)
 
     def _get_file_id(self, filename: str) -> str:
         """Generate a unique ID for a file."""
@@ -59,6 +63,26 @@ class StorageManager:
 
         return None, None, None
 
+    def _find_thumbnail(self, item_id: str, item_type: str) -> Optional[str]:
+        """Find thumbnail file for a model or trajectory by ID.
+
+        Args:
+            item_id: The ID of the model or trajectory
+            item_type: Either "models" or "trajectories"
+
+        Returns:
+            Relative path from base_path if thumbnail exists, None otherwise
+        """
+        thumbnail_dir = self.thumbnails_dir / item_type
+
+        # Look for common image extensions
+        for ext in ['.png', '.jpg', '.gif']:
+            thumbnail_file = thumbnail_dir / f"{item_id}{ext}"
+            if thumbnail_file.exists():
+                return str(thumbnail_file.relative_to(self.base_path))
+
+        return None
+
     def list_trajectories(self, category: Optional[str] = None) -> List[TrajectoryMetadata]:
         """List all trajectory files."""
         trajectories = []
@@ -80,15 +104,20 @@ class StorageManager:
                     # Parse trajectory file
                     frame_count, frame_rate, num_joints = self._parse_trajectory_file(file_path)
 
+                    # Get trajectory ID and check for thumbnail
+                    trajectory_id = self._get_file_id(str(file_path.relative_to(self.trajectories_dir)))
+                    thumbnail_path = self._find_thumbnail(trajectory_id, "trajectories")
+
                     trajectories.append(TrajectoryMetadata(
-                        id=self._get_file_id(str(file_path.relative_to(self.trajectories_dir))),
+                        id=trajectory_id,
                         filename=filename,
                         category=current_category,
                         file_size=stat.st_size,
                         upload_date=datetime.fromtimestamp(stat.st_mtime),
                         frame_count=frame_count,
                         frame_rate=frame_rate,
-                        num_joints=num_joints
+                        num_joints=num_joints,
+                        thumbnail_path=thumbnail_path
                     ))
 
         return sorted(trajectories, key=lambda x: x.upload_date, reverse=True)
@@ -122,15 +151,20 @@ class StorageManager:
         stat = file_path.stat()
         frame_count, frame_rate, num_joints = self._parse_trajectory_file(file_path)
 
+        # Get trajectory ID and check for thumbnail
+        trajectory_id = self._get_file_id(str(file_path.relative_to(self.trajectories_dir)))
+        thumbnail_path = self._find_thumbnail(trajectory_id, "trajectories")
+
         return TrajectoryMetadata(
-            id=self._get_file_id(str(file_path.relative_to(self.trajectories_dir))),
+            id=trajectory_id,
             filename=filename,
             category=category,
             file_size=stat.st_size,
             upload_date=datetime.fromtimestamp(stat.st_mtime),
             frame_count=frame_count,
             frame_rate=frame_rate,
-            num_joints=num_joints
+            num_joints=num_joints,
+            thumbnail_path=thumbnail_path
         )
 
     def delete_trajectory(self, trajectory_id: str) -> bool:
@@ -158,24 +192,35 @@ class StorageManager:
                         stat = xml_file.stat()
                         rel_path = xml_file.relative_to(self.models_dir)
 
+                        # Get model ID and check for thumbnail
+                        model_id = self._get_file_id(str(rel_path))
+                        thumbnail_path = self._find_thumbnail(model_id, "models")
+
                         models.append(ModelMetadata(
-                            id=self._get_file_id(str(rel_path)),
+                            id=model_id,
                             filename=xml_file.name,
                             model_name=model_dir.name,  # e.g., "MS-Human-700"
                             relative_path=str(rel_path),
                             file_size=stat.st_size,
-                            upload_date=datetime.fromtimestamp(stat.st_mtime)
+                            upload_date=datetime.fromtimestamp(stat.st_mtime),
+                            thumbnail_path=thumbnail_path
                         ))
             elif item.suffix == '.xml':
                 # XML file directly in models/ root (for backward compatibility)
                 stat = item.stat()
+
+                # Get model ID and check for thumbnail
+                model_id = self._get_file_id(item.name)
+                thumbnail_path = self._find_thumbnail(model_id, "models")
+
                 models.append(ModelMetadata(
-                    id=self._get_file_id(item.name),
+                    id=model_id,
                     filename=item.name,
                     model_name=None,
                     relative_path=item.name,
                     file_size=stat.st_size,
-                    upload_date=datetime.fromtimestamp(stat.st_mtime)
+                    upload_date=datetime.fromtimestamp(stat.st_mtime),
+                    thumbnail_path=thumbnail_path
                 ))
 
         return sorted(models, key=lambda x: x.upload_date, reverse=True)
@@ -209,13 +254,18 @@ class StorageManager:
         stat = file_path.stat()
         rel_path = file_path.relative_to(self.models_dir)
 
+        # Get model ID and check for thumbnail
+        model_id = self._get_file_id(str(rel_path))
+        thumbnail_path = self._find_thumbnail(model_id, "models")
+
         return ModelMetadata(
-            id=self._get_file_id(str(rel_path)),
+            id=model_id,
             filename=filename,
             model_name=model_name,
             relative_path=str(rel_path),
             file_size=stat.st_size,
-            upload_date=datetime.fromtimestamp(stat.st_mtime)
+            upload_date=datetime.fromtimestamp(stat.st_mtime),
+            thumbnail_path=thumbnail_path
         )
 
     def delete_model(self, model_id: str) -> bool:
@@ -281,6 +331,42 @@ class StorageManager:
                 return requested_file
             except ValueError:
                 return None
+
+        return None
+
+    def get_model_thumbnail(self, model_id: str) -> Optional[Path]:
+        """Get thumbnail path for a model by ID.
+
+        Args:
+            model_id: The model ID
+
+        Returns:
+            Path to thumbnail file if it exists, None otherwise
+        """
+        thumbnail_dir = self.thumbnails_dir / "models"
+
+        for ext in ['.png', '.jpg', '.gif']:
+            thumbnail_file = thumbnail_dir / f"{model_id}{ext}"
+            if thumbnail_file.exists():
+                return thumbnail_file
+
+        return None
+
+    def get_trajectory_thumbnail(self, trajectory_id: str) -> Optional[Path]:
+        """Get thumbnail path for a trajectory by ID.
+
+        Args:
+            trajectory_id: The trajectory ID
+
+        Returns:
+            Path to thumbnail file if it exists, None otherwise
+        """
+        thumbnail_dir = self.thumbnails_dir / "trajectories"
+
+        for ext in ['.png', '.jpg', '.gif']:
+            thumbnail_file = thumbnail_dir / f"{trajectory_id}{ext}"
+            if thumbnail_file.exists():
+                return thumbnail_file
 
         return None
 

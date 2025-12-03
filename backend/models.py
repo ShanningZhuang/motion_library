@@ -16,6 +16,7 @@ class TrajectoryMetadata(BaseModel):
     frame_count: Optional[int] = None
     frame_rate: Optional[float] = None
     num_joints: Optional[int] = None
+    thumbnail_path: Optional[str] = None
 
 
 class TrajectoryUploadResponse(BaseModel):
@@ -36,6 +37,7 @@ class ModelMetadata(BaseModel):
     relative_path: str  # Path from models dir (e.g., "MS-Human-700/MS-Human-700-MJX.xml")
     file_size: int
     upload_date: datetime
+    thumbnail_path: Optional[str] = None
 
 
 class ModelListResponse(BaseModel):

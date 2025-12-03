@@ -274,6 +274,44 @@ async def get_model_file(
     )
 
 
+# Thumbnail endpoints
+@app.get("/api/models/{model_id}/thumbnail")
+async def get_model_thumbnail(
+    model_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Get thumbnail image for a model."""
+    thumbnail_path = storage.get_model_thumbnail(model_id)
+    if not thumbnail_path:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    return FileResponse(
+        path=thumbnail_path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"}
+    )
+
+
+@app.get("/api/trajectories/{trajectory_id}/thumbnail")
+async def get_trajectory_thumbnail(
+    trajectory_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Get thumbnail GIF for a trajectory."""
+    thumbnail_path = storage.get_trajectory_thumbnail(trajectory_id)
+    if not thumbnail_path:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    # Determine media type based on extension
+    media_type = "image/gif" if thumbnail_path.suffix == ".gif" else "image/png"
+
+    return FileResponse(
+        path=thumbnail_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"}
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

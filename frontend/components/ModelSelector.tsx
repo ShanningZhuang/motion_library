@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { modelApi, ModelMetadata } from '@/lib/api';
+import { modelApi, ModelMetadata, API_BASE_URL } from '@/lib/api';
 
 interface ModelSelectorProps {
   onModelSelect: (modelXML: string, model: ModelMetadata) => void;
@@ -19,6 +19,7 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
   const [error, setError] = useState<string | null>(null);
   const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [defaultCollapsed, setDefaultCollapsed] = useState(true);
 
   useEffect(() => {
     loadModels();
@@ -30,6 +31,18 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
       setError(null);
       const response = await modelApi.list();
       setModels(response.models);
+
+      // Initialize all folders as collapsed if defaultCollapsed is true
+      if (defaultCollapsed) {
+        const folderNames = new Set<string>();
+        response.models.forEach((model) => {
+          const pathParts = model.relative_path.split('/');
+          const folderName = pathParts.length > 1 ? pathParts[0] : 'Root';
+          folderNames.add(folderName);
+        });
+        setCollapsedFolders(folderNames);
+        setDefaultCollapsed(false); // Only do this once
+      }
     } catch (err) {
       setError('Failed to load models');
       console.error('Error loading models:', err);
@@ -174,7 +187,7 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
 
                 {/* Models in folder */}
                 {!isCollapsed && (
-                  <div className="pl-6 space-y-2">
+                  <div className="space-y-2">
                     {group.models.map((model) => {
                       const isSelected = model.id === selectedModelId;
                       const isLoading = model.id === loadingModelId;
@@ -195,22 +208,43 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
                             ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
                           `}
                         >
-                          <div className="flex flex-col gap-1">
-                            {model.model_name && (
-                              <div className="text-xs text-gray-400 font-medium">
-                                {model.model_name}
-                              </div>
-                            )}
-                            <div className="text-sm text-gray-200 font-medium">
-                              {model.filename}
+                          <div className="flex gap-3">
+                            {/* Thumbnail column */}
+                            <div className="flex-shrink-0 w-20 h-20 bg-gray-600 rounded overflow-hidden">
+                              {model.thumbnail_path ? (
+                                <img
+                                  src={`${API_BASE_URL}/api/models/${model.id}/thumbnail`}
+                                  alt={model.filename}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                  No preview
+                                </div>
+                              )}
                             </div>
-                            <div className="text-xs text-gray-400">
-                              {formatFileSize(model.file_size)}
+
+                            {/* Info column */}
+                            <div className="flex-1 flex flex-col gap-1 min-w-0">
+                              {model.model_name && (
+                                <div className="text-xs text-gray-400 font-medium truncate">
+                                  {model.model_name}
+                                </div>
+                              )}
+                              <div className="text-sm text-gray-200 font-medium truncate">
+                                {model.filename}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {formatFileSize(model.file_size)}
+                              </div>
+                              {isLoading && (
+                                <div className="text-xs text-blue-400">Loading...</div>
+                              )}
                             </div>
                           </div>
-                          {isLoading && (
-                            <div className="mt-2 text-xs text-blue-400">Loading...</div>
-                          )}
                         </button>
                       );
                     })}

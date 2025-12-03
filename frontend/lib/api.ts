@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -53,6 +53,7 @@ export interface TrajectoryMetadata {
   frame_count?: number;
   frame_rate?: number;
   num_joints?: number;
+  thumbnail_path?: string;
 }
 
 export interface ModelMetadata {
@@ -62,6 +63,7 @@ export interface ModelMetadata {
   relative_path: string;
   file_size: number;
   upload_date: string;
+  thumbnail_path?: string;
 }
 
 // Auth API

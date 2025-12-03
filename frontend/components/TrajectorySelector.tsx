@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { trajectoryApi, TrajectoryMetadata } from '@/lib/api';
+import { trajectoryApi, TrajectoryMetadata, API_BASE_URL } from '@/lib/api';
 
 interface TrajectorySelectorProps {
   onTrajectorySelect: (trajectoryData: Blob, trajectory: TrajectoryMetadata) => void;
@@ -22,6 +22,7 @@ export default function TrajectorySelector({
   const [error, setError] = useState<string | null>(null);
   const [loadingTrajectoryId, setLoadingTrajectoryId] = useState<string | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [defaultCollapsed, setDefaultCollapsed] = useState(true);
 
   useEffect(() => {
     loadTrajectories();
@@ -33,6 +34,17 @@ export default function TrajectorySelector({
       setError(null);
       const response = await trajectoryApi.list();
       setTrajectories(response.trajectories);
+
+      // Initialize all categories as collapsed if defaultCollapsed is true
+      if (defaultCollapsed) {
+        const categoryNames = new Set<string>();
+        response.trajectories.forEach((trajectory) => {
+          const categoryName = trajectory.category || 'Uncategorized';
+          categoryNames.add(categoryName);
+        });
+        setCollapsedCategories(categoryNames);
+        setDefaultCollapsed(false); // Only do this once
+      }
     } catch (err) {
       setError('Failed to load trajectories');
       console.error('Error loading trajectories:', err);
@@ -178,7 +190,7 @@ export default function TrajectorySelector({
 
                 {/* Trajectories in category */}
                 {!isCollapsed && (
-                  <div className="pl-6 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {group.trajectories.map((trajectory) => {
                       const isSelected = trajectory.id === selectedTrajectoryId;
                       const isLoading = trajectory.id === loadingTrajectoryId;
@@ -199,19 +211,44 @@ export default function TrajectorySelector({
                             ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
                           `}
                         >
-                          <div className="flex flex-col gap-1">
-                            <div className="text-sm text-gray-200 font-medium">
-                              {trajectory.filename}
+                          <div className="flex flex-col gap-2">
+                            {/* GIF preview */}
+                            <div className="w-full aspect-square bg-gray-600 rounded overflow-hidden">
+                              {trajectory.thumbnail_path ? (
+                                <img
+                                  src={`${API_BASE_URL}/api/trajectories/${trajectory.id}/thumbnail`}
+                                  alt={trajectory.filename}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                  No preview
+                                </div>
+                              )}
                             </div>
-                            <div className="text-xs text-gray-400">
-                              {formatFileSize(trajectory.file_size)}
-                              {trajectory.frame_count && ` • ${trajectory.frame_count} frames`}
-                              {trajectory.frame_rate && ` • ${trajectory.frame_rate} fps`}
+
+                            {/* Info section */}
+                            <div className="flex flex-col gap-1">
+                              <div className="text-xs text-gray-200 font-medium truncate">
+                                {trajectory.filename}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {formatFileSize(trajectory.file_size)}
+                              </div>
+                              {trajectory.frame_count && (
+                                <div className="text-xs text-gray-400">
+                                  {trajectory.frame_count} frames
+                                  {trajectory.frame_rate && ` @ ${trajectory.frame_rate} fps`}
+                                </div>
+                              )}
+                              {isLoading && (
+                                <div className="text-xs text-blue-400">Loading...</div>
+                              )}
                             </div>
                           </div>
-                          {isLoading && (
-                            <div className="mt-2 text-xs text-blue-400">Loading...</div>
-                          )}
                         </button>
                       );
                     })}
