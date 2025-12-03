@@ -131,12 +131,6 @@ export default function TrajectorySelector({
     setLoadedCategories(prev => new Set(prev).add(categoryName));
   };
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
   // Group trajectories by category
   const groupTrajectories = (): CategoryGroup[] => {
     const categoryMap = new Map<string, TrajectoryMetadata[]>();
@@ -277,18 +271,9 @@ export default function TrajectorySelector({
 
                             {/* Info section */}
                             <div className="flex flex-col gap-1">
-                              <div className="text-xs text-gray-200 font-medium truncate">
+                              <div className="text-xs text-gray-200 font-medium break-words">
                                 {trajectory.filename}
                               </div>
-                              <div className="text-xs text-gray-400">
-                                {formatFileSize(trajectory.file_size)}
-                              </div>
-                              {trajectory.frame_count && (
-                                <div className="text-xs text-gray-400">
-                                  {trajectory.frame_count} frames
-                                  {trajectory.frame_rate && ` @ ${trajectory.frame_rate} fps`}
-                                </div>
-                              )}
                               {isLoading && (
                                 <div className="text-xs text-blue-400">Loading...</div>
                               )}
@@ -304,10 +289,6 @@ export default function TrajectorySelector({
           })}
         </div>
       )}
-
-      <div className="mt-4 text-xs text-gray-500 border-t border-gray-700 pt-3">
-        Note: Trajectory playback requires NPY/NPZ parsing (coming soon)
-      </div>
     </div>
   );
 }

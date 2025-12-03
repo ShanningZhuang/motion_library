@@ -263,16 +263,8 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
 
                             {/* Info column */}
                             <div className="flex-1 flex flex-col gap-1 min-w-0">
-                              {model.model_name && (
-                                <div className="text-xs text-gray-400 font-medium truncate">
-                                  {model.model_name}
-                                </div>
-                              )}
-                              <div className="text-sm text-gray-200 font-medium truncate">
+                              <div className="text-sm text-gray-200 font-medium break-words">
                                 {model.filename}
-                              </div>
-                              <div className="text-xs text-gray-400">
-                                {formatFileSize(model.file_size)}
                               </div>
                               {isLoading && (
                                 <div className="text-xs text-blue-400">Loading...</div>
