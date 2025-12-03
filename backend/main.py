@@ -1,8 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import timedelta
 from typing import Optional, List
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from auth import (
@@ -26,6 +29,11 @@ app = FastAPI(
     description="API for managing and visualizing robot motion trajectories",
     version="1.0.0"
 )
+
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -55,9 +63,10 @@ async def health():
 
 # Authentication endpoints
 @app.post("/api/auth/login", response_model=Token)
-async def login(request: LoginRequest):
-    """Authenticate and get access token."""
-    if not authenticate_user(request.password):
+@limiter.limit("5/5minutes")  # 5 attempts per 5 minutes per IP
+async def login(request: Request, login_request: LoginRequest):
+    """Authenticate and get access token with rate limiting."""
+    if not authenticate_user(login_request.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password",
