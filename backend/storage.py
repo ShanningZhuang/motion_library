@@ -32,7 +32,7 @@ class StorageManager:
         try:
             if file_path.suffix == '.npz':
                 data = np.load(file_path)
-                qpos = data.get('qpos')
+                qpos = data.get('qpos_traj')
                 frame_rate = data.get('frame_rate', data.get('framerate'))
 
                 if qpos is not None:
