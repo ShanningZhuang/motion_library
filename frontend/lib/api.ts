@@ -106,6 +106,12 @@ export const trajectoryApi = {
   delete: async (id: string): Promise<void> => {
     await api.delete(`/api/trajectories/${id}`);
   },
+  getThumbnail: async (id: string): Promise<Blob> => {
+    const response = await api.get(`/api/trajectories/${id}/thumbnail`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
 
 // Model API
@@ -139,6 +145,12 @@ export const modelApi = {
   },
   getFile: async (id: string, filePath: string): Promise<Blob> => {
     const response = await api.get(`/api/models/${id}/files/${encodeURIComponent(filePath)}`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+  getThumbnail: async (id: string): Promise<Blob> => {
+    const response = await api.get(`/api/models/${id}/thumbnail`, {
       responseType: 'blob',
     });
     return response.data;

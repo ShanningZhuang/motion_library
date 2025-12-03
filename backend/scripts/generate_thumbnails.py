@@ -29,7 +29,7 @@ import mujoco
 from PIL import Image
 
 # Configuration
-THUMBNAIL_SIZE = (160, 160)  # Small web-optimized size
+THUMBNAIL_SIZE = (320, 320)  # Small web-optimized size
 
 # Default camera settings (programmatic camera, doesn't use XML camera definitions)
 DEFAULT_CAMERA_DISTANCE = 3.0  # Distance from model
@@ -66,27 +66,52 @@ class ThumbnailGenerator:
         self,
         model: mujoco.MjModel,
         data: mujoco.MjData,
-        distance: float,
-        azimuth: float,
-        elevation: float,
-        lookat: list
+        camera_name: str = None,
+        distance: float = None,
+        azimuth: float = None,
+        elevation: float = None,
+        lookat: list = None
     ) -> np.ndarray:
-        """Render a frame with the specified camera configuration"""
+        """Render a frame with the specified camera configuration
+
+        Args:
+            model: MuJoCo model
+            data: MuJoCo data
+            camera_name: Name of camera defined in XML (if None, uses custom parameters)
+            distance: Camera distance (used if camera_name is None)
+            azimuth: Camera azimuth angle (used if camera_name is None)
+            elevation: Camera elevation angle (used if camera_name is None)
+            lookat: Camera lookat point (used if camera_name is None)
+        """
         # Create offscreen renderer
         renderer = mujoco.Renderer(model, THUMBNAIL_SIZE[1], THUMBNAIL_SIZE[0])
 
-        # Set up camera programmatically (don't rely on XML camera)
-        camera = mujoco.MjvCamera()
-        mujoco.mjv_defaultFreeCamera(model, camera)
+        if camera_name:
+            # Use camera defined in XML
+            try:
+                camera_id = model.camera(camera_name).id
+                print(f"  Using XML camera: {camera_name} (id={camera_id})")
+                renderer.update_scene(data, camera=camera_id)
+            except KeyError:
+                print(f"  Warning: Camera '{camera_name}' not found in model, using custom parameters")
+                # Fall back to custom parameters
+                camera_name = None
 
-        # Set camera distance and orientation
-        camera.distance = distance
-        camera.azimuth = azimuth
-        camera.elevation = elevation
-        camera.lookat[:] = lookat
+        if not camera_name:
+            # Set up camera programmatically with custom parameters
+            camera = mujoco.MjvCamera()
+            mujoco.mjv_defaultFreeCamera(model, camera)
 
-        # Update scene with custom camera
-        renderer.update_scene(data, camera=camera)
+            # Use provided parameters or defaults
+            camera.distance = distance if distance is not None else DEFAULT_CAMERA_DISTANCE
+            camera.azimuth = azimuth if azimuth is not None else DEFAULT_CAMERA_AZIMUTH
+            camera.elevation = elevation if elevation is not None else DEFAULT_CAMERA_ELEVATION
+            camera.lookat[:] = lookat if lookat is not None else DEFAULT_CAMERA_LOOKAT
+
+            print(f"  Using custom camera: distance={camera.distance}, azimuth={camera.azimuth}, elevation={camera.elevation}")
+
+            # Update scene with custom camera
+            renderer.update_scene(data, camera=camera)
 
         # Render
         pixels = renderer.render()
@@ -99,9 +124,10 @@ class ThumbnailGenerator:
     def render_model(
         self,
         model_relative_path: str,
-        distance: float = DEFAULT_CAMERA_DISTANCE,
-        azimuth: float = DEFAULT_CAMERA_AZIMUTH,
-        elevation: float = DEFAULT_CAMERA_ELEVATION,
+        camera_name: str = None,
+        distance: float = None,
+        azimuth: float = None,
+        elevation: float = None,
         lookat: list = None
     ) -> bool:
         """Render thumbnail for ONE specific model
@@ -109,16 +135,15 @@ class ThumbnailGenerator:
         Args:
             model_relative_path: Path relative to models/ directory
                                 e.g., "MS-Human-700/MS-Human-700-MJX.xml"
-            distance: Camera distance from model
-            azimuth: Horizontal rotation angle in degrees
-            elevation: Vertical rotation angle in degrees
-            lookat: Point to look at [x, y, z]
+            camera_name: Name of camera defined in XML (if provided, other params ignored)
+            distance: Camera distance from model (used if camera_name not provided)
+            azimuth: Horizontal rotation angle in degrees (used if camera_name not provided)
+            elevation: Vertical rotation angle in degrees (used if camera_name not provided)
+            lookat: Point to look at [x, y, z] (used if camera_name not provided)
 
         Returns:
             True if successful, False otherwise
         """
-        if lookat is None:
-            lookat = DEFAULT_CAMERA_LOOKAT
 
         model_path = self.models_dir / model_relative_path
 
@@ -145,7 +170,6 @@ class ThumbnailGenerator:
 
             print(f"Rendering model: {rel_path_str}")
             print(f"  Model ID: {model_id}")
-            print(f"  Camera: distance={distance}, azimuth={azimuth}, elevation={elevation}, lookat={lookat}")
 
             # Load model
             model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -154,8 +178,8 @@ class ThumbnailGenerator:
             # Reset to initial state
             mujoco.mj_forward(model, data)
 
-            # Render frame with custom camera
-            pixels = self.render_with_camera(model, data, distance, azimuth, elevation, lookat)
+            # Render frame with camera
+            pixels = self.render_with_camera(model, data, camera_name, distance, azimuth, elevation, lookat)
 
             # Save as WebP with compression
             img = Image.fromarray(pixels)
@@ -172,9 +196,10 @@ class ThumbnailGenerator:
         self,
         trajectory_path: Path,
         model_relative_path: str,
-        distance: float = DEFAULT_CAMERA_DISTANCE,
-        azimuth: float = DEFAULT_CAMERA_AZIMUTH,
-        elevation: float = DEFAULT_CAMERA_ELEVATION,
+        camera_name: str = None,
+        distance: float = None,
+        azimuth: float = None,
+        elevation: float = None,
         lookat: list = None
     ) -> bool:
         """Render animated WebP for a single trajectory
@@ -182,16 +207,15 @@ class ThumbnailGenerator:
         Args:
             trajectory_path: Absolute path to trajectory file
             model_relative_path: Path relative to models/ directory
-            distance: Camera distance from model
-            azimuth: Horizontal rotation angle in degrees
-            elevation: Vertical rotation angle in degrees
-            lookat: Point to look at [x, y, z]
+            camera_name: Name of camera defined in XML (if provided, other params ignored)
+            distance: Camera distance from model (used if camera_name not provided)
+            azimuth: Horizontal rotation angle in degrees (used if camera_name not provided)
+            elevation: Vertical rotation angle in degrees (used if camera_name not provided)
+            lookat: Point to look at [x, y, z] (used if camera_name not provided)
 
         Returns:
             True if successful, False otherwise
         """
-        if lookat is None:
-            lookat = DEFAULT_CAMERA_LOOKAT
 
         model_path = self.models_dir / model_relative_path
 
@@ -219,7 +243,6 @@ class ThumbnailGenerator:
             print(f"Rendering trajectory: {rel_path_str}")
             print(f"  Trajectory ID: {trajectory_id}")
             print(f"  Using model: {model_relative_path}")
-            print(f"  Camera: distance={distance}, azimuth={azimuth}, elevation={elevation}, lookat={lookat}")
 
             # Load model
             model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -229,7 +252,7 @@ class ThumbnailGenerator:
             trajectory_data = np.load(trajectory_path)
             if isinstance(trajectory_data, np.lib.npyio.NpzFile):
                 # NPZ file - get qpos array
-                qpos_data = trajectory_data['qpos']
+                qpos_data = trajectory_data['qpos_traj']
             else:
                 # NPY file
                 qpos_data = trajectory_data
@@ -239,19 +262,6 @@ class ThumbnailGenerator:
             # Sample frames evenly across trajectory
             frame_indices = np.linspace(0, total_frames - 1, TRAJECTORY_FRAMES, dtype=int)
 
-            # Create offscreen renderer
-            renderer = mujoco.Renderer(model, THUMBNAIL_SIZE[1], THUMBNAIL_SIZE[0])
-
-            # Set up camera programmatically (don't rely on XML camera)
-            camera = mujoco.MjvCamera()
-            mujoco.mjv_defaultFreeCamera(model, camera)
-
-            # Set camera distance and orientation
-            camera.distance = distance
-            camera.azimuth = azimuth
-            camera.elevation = elevation
-            camera.lookat[:] = lookat
-
             # Render frames
             frames = []
             for idx in frame_indices:
@@ -259,13 +269,9 @@ class ThumbnailGenerator:
                 data.qpos[:] = qpos_data[idx]
                 mujoco.mj_forward(model, data)
 
-                # Render with custom camera
-                renderer.update_scene(data, camera=camera)
-                pixels = renderer.render()
+                # Render frame with camera
+                pixels = self.render_with_camera(model, data, camera_name, distance, azimuth, elevation, lookat)
                 frames.append(pixels)
-
-            # Clean up
-            renderer.close()
 
             # Save as WebP animation with compression
             pil_frames = [Image.fromarray(frame) for frame in frames]
@@ -293,9 +299,10 @@ class ThumbnailGenerator:
         self,
         folder_relative_path: str,
         model_relative_path: str,
-        distance: float = DEFAULT_CAMERA_DISTANCE,
-        azimuth: float = DEFAULT_CAMERA_AZIMUTH,
-        elevation: float = DEFAULT_CAMERA_ELEVATION,
+        camera_name: str = None,
+        distance: float = None,
+        azimuth: float = None,
+        elevation: float = None,
         lookat: list = None
     ) -> Tuple[int, int]:
         """Render all trajectories in a folder
@@ -303,17 +310,15 @@ class ThumbnailGenerator:
         Args:
             folder_relative_path: Path relative to trajectories/ directory
             model_relative_path: Path relative to models/ directory
-            distance: Camera distance from model
-            azimuth: Horizontal rotation angle in degrees
-            elevation: Vertical rotation angle in degrees
-            lookat: Point to look at [x, y, z]
+            camera_name: Name of camera defined in XML (if provided, other params ignored)
+            distance: Camera distance from model (used if camera_name not provided)
+            azimuth: Horizontal rotation angle in degrees (used if camera_name not provided)
+            elevation: Vertical rotation angle in degrees (used if camera_name not provided)
+            lookat: Point to look at [x, y, z] (used if camera_name not provided)
 
         Returns:
             Tuple of (success_count, total_count)
         """
-        if lookat is None:
-            lookat = DEFAULT_CAMERA_LOOKAT
-
         folder_path = self.trajectories_dir / folder_relative_path
 
         if not folder_path.exists():
@@ -338,7 +343,7 @@ class ThumbnailGenerator:
         total_count = len(trajectory_files)
 
         for trajectory_file in trajectory_files:
-            if self.render_trajectory(trajectory_file, model_relative_path, distance, azimuth, elevation, lookat):
+            if self.render_trajectory(trajectory_file, model_relative_path, camera_name, distance, azimuth, elevation, lookat):
                 success_count += 1
             print()  # Blank line between trajectories
 
@@ -362,8 +367,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Render a model with default camera
+  # Render a model with default camera parameters
   python scripts/generate_thumbnails.py render-model --model "MS-Human-700/MS-Human-700-MJX.xml"
+
+  # Render using a camera defined in the XML
+  python scripts/generate_thumbnails.py render-model --model "MS-Human-700/MS-Human-700-MJX.xml" --camera "cam1"
 
   # Render with custom camera settings
   python scripts/generate_thumbnails.py render-model --model "MS-Human-700/MS-Human-700-MJX.xml" --distance 5.0 --azimuth 90 --elevation -30
@@ -376,22 +384,28 @@ Examples:
         help="Model path relative to models/ directory (e.g., 'MS-Human-700/MS-Human-700-MJX.xml')"
     )
     model_parser.add_argument(
+        "--camera",
+        type=str,
+        default=None,
+        help="Camera name defined in XML (if not specified, uses custom camera parameters below)"
+    )
+    model_parser.add_argument(
         "--distance",
         type=float,
-        default=DEFAULT_CAMERA_DISTANCE,
-        help=f"Camera distance from model (default: {DEFAULT_CAMERA_DISTANCE})"
+        default=None,
+        help=f"Camera distance from model (default: {DEFAULT_CAMERA_DISTANCE}, ignored if --camera specified)"
     )
     model_parser.add_argument(
         "--azimuth",
         type=float,
-        default=DEFAULT_CAMERA_AZIMUTH,
-        help=f"Camera azimuth angle in degrees (default: {DEFAULT_CAMERA_AZIMUTH})"
+        default=None,
+        help=f"Camera azimuth angle in degrees (default: {DEFAULT_CAMERA_AZIMUTH}, ignored if --camera specified)"
     )
     model_parser.add_argument(
         "--elevation",
         type=float,
-        default=DEFAULT_CAMERA_ELEVATION,
-        help=f"Camera elevation angle in degrees (default: {DEFAULT_CAMERA_ELEVATION})"
+        default=None,
+        help=f"Camera elevation angle in degrees (default: {DEFAULT_CAMERA_ELEVATION}, ignored if --camera specified)"
     )
     model_parser.add_argument(
         "--lookat",
@@ -399,7 +413,7 @@ Examples:
         nargs=3,
         metavar=("X", "Y", "Z"),
         default=None,
-        help=f"Camera lookat point [x y z] (default: {DEFAULT_CAMERA_LOOKAT})"
+        help=f"Camera lookat point [x y z] (default: {DEFAULT_CAMERA_LOOKAT}, ignored if --camera specified)"
     )
 
     # render-trajectory subcommand
@@ -414,6 +428,9 @@ Examples:
 
   # Render all trajectories in a folder
   python scripts/generate_thumbnails.py render-trajectory --trajectory "locomotion/" --model "MS-Human-700/MS-Human-700-MJX.xml"
+
+  # Render using a camera defined in the XML
+  python scripts/generate_thumbnails.py render-trajectory --trajectory "locomotion/walk.npy" --model "MS-Human-700/MS-Human-700-MJX.xml" --camera "cam1"
 
   # Render with custom camera settings
   python scripts/generate_thumbnails.py render-trajectory --trajectory "locomotion/walk.npy" --model "MS-Human-700/MS-Human-700-MJX.xml" --distance 4.0
@@ -432,22 +449,28 @@ Examples:
         help="Model path relative to models/ directory (e.g., 'MS-Human-700/MS-Human-700-MJX.xml')"
     )
     trajectory_parser.add_argument(
+        "--camera",
+        type=str,
+        default=None,
+        help="Camera name defined in XML (if not specified, uses custom camera parameters below)"
+    )
+    trajectory_parser.add_argument(
         "--distance",
         type=float,
-        default=DEFAULT_CAMERA_DISTANCE,
-        help=f"Camera distance from model (default: {DEFAULT_CAMERA_DISTANCE})"
+        default=None,
+        help=f"Camera distance from model (default: {DEFAULT_CAMERA_DISTANCE}, ignored if --camera specified)"
     )
     trajectory_parser.add_argument(
         "--azimuth",
         type=float,
-        default=DEFAULT_CAMERA_AZIMUTH,
-        help=f"Camera azimuth angle in degrees (default: {DEFAULT_CAMERA_AZIMUTH})"
+        default=None,
+        help=f"Camera azimuth angle in degrees (default: {DEFAULT_CAMERA_AZIMUTH}, ignored if --camera specified)"
     )
     trajectory_parser.add_argument(
         "--elevation",
         type=float,
-        default=DEFAULT_CAMERA_ELEVATION,
-        help=f"Camera elevation angle in degrees (default: {DEFAULT_CAMERA_ELEVATION})"
+        default=None,
+        help=f"Camera elevation angle in degrees (default: {DEFAULT_CAMERA_ELEVATION}, ignored if --camera specified)"
     )
     trajectory_parser.add_argument(
         "--lookat",
@@ -455,7 +478,7 @@ Examples:
         nargs=3,
         metavar=("X", "Y", "Z"),
         default=None,
-        help=f"Camera lookat point [x y z] (default: {DEFAULT_CAMERA_LOOKAT})"
+        help=f"Camera lookat point [x y z] (default: {DEFAULT_CAMERA_LOOKAT}, ignored if --camera specified)"
     )
 
     args = parser.parse_args()
@@ -479,6 +502,7 @@ Examples:
         # Render a single model
         success = generator.render_model(
             args.model,
+            camera_name=args.camera,
             distance=args.distance,
             azimuth=args.azimuth,
             elevation=args.elevation,
@@ -498,6 +522,7 @@ Examples:
             success = generator.render_trajectory(
                 trajectory_path,
                 args.model,
+                camera_name=args.camera,
                 distance=args.distance,
                 azimuth=args.azimuth,
                 elevation=args.elevation,
@@ -513,6 +538,7 @@ Examples:
             success_count, total_count = generator.render_trajectories_in_folder(
                 args.trajectory,
                 args.model,
+                camera_name=args.camera,
                 distance=args.distance,
                 azimuth=args.azimuth,
                 elevation=args.elevation,

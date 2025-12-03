@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { trajectoryApi, TrajectoryMetadata, API_BASE_URL } from '@/lib/api';
+import { trajectoryApi, TrajectoryMetadata } from '@/lib/api';
 
 interface TrajectorySelectorProps {
   onTrajectorySelect: (trajectoryData: Blob, trajectory: TrajectoryMetadata) => void;
@@ -23,10 +23,19 @@ export default function TrajectorySelector({
   const [loadingTrajectoryId, setLoadingTrajectoryId] = useState<string | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [defaultCollapsed, setDefaultCollapsed] = useState(true);
+  const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map());
+  const [loadedCategories, setLoadedCategories] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadTrajectories();
   }, []);
+
+  useEffect(() => {
+    // Cleanup blob URLs on unmount
+    return () => {
+      thumbnailUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [thumbnailUrls]);
 
   const loadTrajectories = async () => {
     try {
@@ -80,11 +89,46 @@ export default function TrajectorySelector({
       const newSet = new Set(prev);
       if (newSet.has(categoryName)) {
         newSet.delete(categoryName);
+        // Load thumbnails for this category when expanded
+        loadCategoryThumbnails(categoryName);
       } else {
         newSet.add(categoryName);
       }
       return newSet;
     });
+  };
+
+  const loadCategoryThumbnails = async (categoryName: string) => {
+    // Don't reload if already loaded
+    if (loadedCategories.has(categoryName)) {
+      return;
+    }
+
+    console.log('[TRAJECTORY SELECTOR] Loading thumbnails for category:', categoryName);
+
+    // Get trajectories in this category
+    const categoryTrajectories = trajectories.filter(
+      t => (t.category || 'Uncategorized') === categoryName
+    );
+
+    const urlMap = new Map(thumbnailUrls);
+
+    for (const trajectory of categoryTrajectories) {
+      if (trajectory.thumbnail_path && !urlMap.has(trajectory.id)) {
+        try {
+          console.log('[TRAJECTORY SELECTOR] Preloading thumbnail for:', trajectory.id, trajectory.filename);
+          const blob = await trajectoryApi.getThumbnail(trajectory.id);
+          const blobUrl = URL.createObjectURL(blob);
+          urlMap.set(trajectory.id, blobUrl);
+          console.log('[TRAJECTORY SELECTOR] Thumbnail preloaded:', trajectory.id);
+        } catch (err) {
+          console.error('[TRAJECTORY SELECTOR] Failed to preload thumbnail:', trajectory.id, err);
+        }
+      }
+    }
+
+    setThumbnailUrls(urlMap);
+    setLoadedCategories(prev => new Set(prev).add(categoryName));
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -212,17 +256,18 @@ export default function TrajectorySelector({
                           `}
                         >
                           <div className="flex flex-col gap-2">
-                            {/* GIF preview */}
+                            {/* Thumbnail preview */}
                             <div className="w-full aspect-square bg-gray-600 rounded overflow-hidden">
-                              {trajectory.thumbnail_path ? (
+                              {thumbnailUrls.get(trajectory.id) ? (
                                 <img
-                                  src={`${API_BASE_URL}/api/trajectories/${trajectory.id}/thumbnail`}
+                                  src={thumbnailUrls.get(trajectory.id)}
                                   alt={trajectory.filename}
                                   className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                  }}
                                 />
+                              ) : trajectory.thumbnail_path ? (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                  Loading...
+                                </div>
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
                                   No preview

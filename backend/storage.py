@@ -344,13 +344,21 @@ class StorageManager:
         Returns:
             Path to thumbnail file if it exists, None otherwise
         """
+        print(f"[STORAGE] Looking for model thumbnail: model_id={model_id}")
         thumbnail_dir = self.thumbnails_dir / "models"
+        print(f"[STORAGE] Search directory: {thumbnail_dir}")
+        print(f"[STORAGE] Directory exists: {thumbnail_dir.exists()}")
 
         # Search recursively for thumbnail (thumbnails mirror directory structure)
         for ext in ['.webp', '.png', '.jpg', '.gif']:
-            for thumbnail_file in thumbnail_dir.rglob(f"{model_id}{ext}"):
-                return thumbnail_file
+            matches = list(thumbnail_dir.rglob(f"{model_id}{ext}"))
+            if matches:
+                print(f"[STORAGE] Found {len(matches)} match(es) for {model_id}{ext}: {matches}")
+                return matches[0]
+            else:
+                print(f"[STORAGE] No matches for pattern: {model_id}{ext}")
 
+        print(f"[STORAGE] Model thumbnail not found after checking all extensions")
         return None
 
     def get_trajectory_thumbnail(self, trajectory_id: str) -> Optional[Path]:
@@ -362,13 +370,21 @@ class StorageManager:
         Returns:
             Path to thumbnail file if it exists, None otherwise
         """
+        print(f"[STORAGE] Looking for trajectory thumbnail: trajectory_id={trajectory_id}")
         thumbnail_dir = self.thumbnails_dir / "trajectories"
+        print(f"[STORAGE] Search directory: {thumbnail_dir}")
+        print(f"[STORAGE] Directory exists: {thumbnail_dir.exists()}")
 
         # Search recursively for thumbnail (thumbnails mirror directory structure)
         for ext in ['.webp', '.png', '.jpg', '.gif']:
-            for thumbnail_file in thumbnail_dir.rglob(f"{trajectory_id}{ext}"):
-                return thumbnail_file
+            matches = list(thumbnail_dir.rglob(f"{trajectory_id}{ext}"))
+            if matches:
+                print(f"[STORAGE] Found {len(matches)} match(es) for {trajectory_id}{ext}: {matches}")
+                return matches[0]
+            else:
+                print(f"[STORAGE] No matches for pattern: {trajectory_id}{ext}")
 
+        print(f"[STORAGE] Trajectory thumbnail not found after checking all extensions")
         return None
 
 

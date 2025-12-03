@@ -20,10 +20,43 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
   const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [defaultCollapsed, setDefaultCollapsed] = useState(true);
+  const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     loadModels();
   }, []);
+
+  useEffect(() => {
+    // Preload thumbnails for all models that have thumbnail_path
+    const loadThumbnails = async () => {
+      const urlMap = new Map<string, string>();
+
+      for (const model of models) {
+        if (model.thumbnail_path) {
+          try {
+            console.log('[MODEL SELECTOR] Preloading thumbnail for:', model.id, model.filename);
+            const blob = await modelApi.getThumbnail(model.id);
+            const blobUrl = URL.createObjectURL(blob);
+            urlMap.set(model.id, blobUrl);
+            console.log('[MODEL SELECTOR] Thumbnail preloaded:', model.id);
+          } catch (err) {
+            console.error('[MODEL SELECTOR] Failed to preload thumbnail:', model.id, err);
+          }
+        }
+      }
+
+      setThumbnailUrls(urlMap);
+    };
+
+    if (models.length > 0) {
+      loadThumbnails();
+    }
+
+    // Cleanup blob URLs on unmount
+    return () => {
+      thumbnailUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [models]);
 
   const loadModels = async () => {
     try {
@@ -211,15 +244,16 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
                           <div className="flex gap-3">
                             {/* Thumbnail column */}
                             <div className="flex-shrink-0 w-20 h-20 bg-gray-600 rounded overflow-hidden">
-                              {model.thumbnail_path ? (
+                              {thumbnailUrls.get(model.id) ? (
                                 <img
-                                  src={`${API_BASE_URL}/api/models/${model.id}/thumbnail`}
+                                  src={thumbnailUrls.get(model.id)}
                                   alt={model.filename}
                                   className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                  }}
                                 />
+                              ) : model.thumbnail_path ? (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                  Loading...
+                                </div>
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
                                   No preview

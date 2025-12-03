@@ -281,9 +281,13 @@ async def get_model_thumbnail(
     current_user: str = Depends(get_current_user)
 ):
     """Get thumbnail image for a model."""
+    print(f"[THUMBNAIL] Model thumbnail request: model_id={model_id}")
     thumbnail_path = storage.get_model_thumbnail(model_id)
     if not thumbnail_path:
+        print(f"[THUMBNAIL] Model thumbnail not found for id={model_id}")
         raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    print(f"[THUMBNAIL] Model thumbnail found: {thumbnail_path}")
 
     # Determine media type based on extension
     media_type = "image/webp"
@@ -293,6 +297,8 @@ async def get_model_thumbnail(
         media_type = "image/jpeg"
     elif thumbnail_path.suffix == ".gif":
         media_type = "image/gif"
+
+    print(f"[THUMBNAIL] Serving with media_type={media_type}")
 
     return FileResponse(
         path=thumbnail_path,
@@ -307,9 +313,13 @@ async def get_trajectory_thumbnail(
     current_user: str = Depends(get_current_user)
 ):
     """Get thumbnail animation for a trajectory."""
+    print(f"[THUMBNAIL] Trajectory thumbnail request: trajectory_id={trajectory_id}")
     thumbnail_path = storage.get_trajectory_thumbnail(trajectory_id)
     if not thumbnail_path:
+        print(f"[THUMBNAIL] Trajectory thumbnail not found for id={trajectory_id}")
         raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    print(f"[THUMBNAIL] Trajectory thumbnail found: {thumbnail_path}")
 
     # Determine media type based on extension
     media_type = "image/webp"
@@ -319,6 +329,8 @@ async def get_trajectory_thumbnail(
         media_type = "image/png"
     elif thumbnail_path.suffix == ".jpg":
         media_type = "image/jpeg"
+
+    print(f"[THUMBNAIL] Serving with media_type={media_type}")
 
     return FileResponse(
         path=thumbnail_path,
