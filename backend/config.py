@@ -4,21 +4,21 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     # Authentication
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     # Admin credentials
-    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_PASSWORD: str
 
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
     # Paths
-    DATA_DIR: str = "../data"
-    MODELS_DIR: str = "../data/models"
-    TRAJECTORIES_DIR: str = "../data/trajectories"
+    DATA_DIR: str = "./data"
+    MODELS_DIR: str = "./data/models"
+    TRAJECTORIES_DIR: str = "./data/trajectories"
 
     class Config:
         env_file = ".env"
