@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    
+    # Frontend CORS
+    FRONTEND_URL: str = "http://localhost:3000"  # Default for development
 
     # Paths
     DATA_DIR: str = "./data"
