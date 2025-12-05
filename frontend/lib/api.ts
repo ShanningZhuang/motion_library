@@ -144,7 +144,9 @@ export const modelApi = {
     return response.data.files;
   },
   getFile: async (id: string, filePath: string): Promise<Blob> => {
-    const response = await api.get(`/api/models/${id}/files/${encodeURIComponent(filePath)}`, {
+    // Encode each path segment separately, preserving the slashes
+    const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+    const response = await api.get(`/api/models/${id}/files/${encodedPath}`, {
       responseType: 'blob',
     });
     return response.data;

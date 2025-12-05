@@ -269,12 +269,24 @@ async def get_model_file(
 
     # Determine media type based on file extension
     media_type = "application/octet-stream"
-    if file_abs_path.suffix == '.xml':
+    suffix = file_abs_path.suffix.lower()
+    
+    if suffix == '.xml':
         media_type = "application/xml"
-    elif file_abs_path.suffix == '.stl':
+    elif suffix == '.stl':
         media_type = "model/stl"
-    elif file_abs_path.suffix in ['.obj', '.dae', '.mesh']:
+    elif suffix in ['.obj', '.dae', '.mesh']:
         media_type = "model/mesh"
+    elif suffix == '.png':
+        media_type = "image/png"
+    elif suffix in ['.jpg', '.jpeg']:
+        media_type = "image/jpeg"
+    elif suffix == '.gif':
+        media_type = "image/gif"
+    elif suffix == '.webp':
+        media_type = "image/webp"
+    elif suffix == '.svg':
+        media_type = "image/svg+xml"
 
     return FileResponse(
         path=file_abs_path,
