@@ -185,11 +185,11 @@ class ThumbnailGenerator:
             img = Image.fromarray(pixels)
             img.save(output_path, "WEBP", quality=85, method=6)
 
-            print(f"  ✓ Saved to {output_path}")
+            print(f"Saved to {output_path}")
             return True
 
         except Exception as e:
-            print(f"  ✗ Error: {e}")
+            print(f"Error: {e}")
             return False
 
     def render_trajectory(
@@ -288,11 +288,11 @@ class ThumbnailGenerator:
                 method=6
             )
 
-            print(f"  ✓ Saved to {output_path}")
+            print(f"Saved to {output_path}")
             return True
 
         except Exception as e:
-            print(f"  ✗ Error: {e}")
+            print(f"Error: {e}")
             return False
 
     def render_trajectories_in_folder(
@@ -509,9 +509,9 @@ Examples:
             lookat=args.lookat
         )
         if success:
-            print("\n✓ Model thumbnail generated successfully")
+            print("\nModel thumbnail generated successfully")
         else:
-            print("\n✗ Failed to generate model thumbnail")
+            print("\nFailed to generate model thumbnail")
 
     elif args.command == "render-trajectory":
         # Check if trajectory path is a file or folder
@@ -529,9 +529,9 @@ Examples:
                 lookat=args.lookat
             )
             if success:
-                print("\n✓ Trajectory animation generated successfully")
+                print("\nTrajectory animation generated successfully")
             else:
-                print("\n✗ Failed to generate trajectory animation")
+                print("\nFailed to generate trajectory animation")
 
         elif trajectory_path.is_dir():
             # Render all trajectories in folder
@@ -544,7 +544,7 @@ Examples:
                 elevation=args.elevation,
                 lookat=args.lookat
             )
-            print(f"\n✓ Completed: {success_count}/{total_count} trajectory animations generated successfully")
+            print(f"\nCompleted: {success_count}/{total_count} trajectory animations generated successfully")
 
         else:
             print(f"Error: Trajectory path not found: {trajectory_path}")
