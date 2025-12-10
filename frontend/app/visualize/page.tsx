@@ -6,18 +6,27 @@ import { useAuth } from '@/contexts/AuthContext';
 import MuJoCoViewer, { ViewerOptions, TrajectoryPlaybackState, MuJoCoViewerRef } from '@/components/MuJoCoViewer';
 import ModelSelector from '@/components/ModelSelector';
 import TrajectorySelector from '@/components/TrajectorySelector';
+import TrajectoryUpload from '@/components/TrajectoryUpload';
 import ViewerOptionsPanel from '@/components/ViewerOptions';
 import VideoControls, { MuJoCoCamera } from '@/components/VideoControls';
 import { ModelMetadata, TrajectoryMetadata } from '@/lib/api';
 import { parseTrajectory, TrajectoryData } from '@/lib/trajectory-parser';
+import TrajectoryList from '@/components/TrajectoryList';
+
+interface LoadedTrajectory {
+  id: string;
+  name: string;
+  data: TrajectoryData;
+  isGhost: boolean;
+  source: 'server' | 'local';
+}
 
 export default function VisualizePage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
   const [selectedModelXML, setSelectedModelXML] = useState<string | undefined>();
   const [selectedModel, setSelectedModel] = useState<ModelMetadata | null>(null);
-  const [selectedTrajectory, setSelectedTrajectory] = useState<TrajectoryMetadata | null>(null);
-  const [trajectoryData, setTrajectoryData] = useState<TrajectoryData | null>(null);
+  const [loadedTrajectories, setLoadedTrajectories] = useState<LoadedTrajectory[]>([]);
   const [playing, setPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
@@ -35,14 +44,20 @@ export default function VisualizePage() {
   const viewerRef = useRef<MuJoCoViewerRef>(null);
 
   // Playback loop - advance frames when playing
+  // Use the longest trajectory to determine max frames
+  const maxFrameCount = loadedTrajectories.reduce((max, traj) =>
+    Math.max(max, traj.data.frameCount), 0);
+  const primaryFrameRate = loadedTrajectories[0]?.data.frameRate || 30;
+
   useEffect(() => {
-    if (!playing || !trajectoryData) {
+    if (!playing || loadedTrajectories.length === 0) {
       return;
     }
 
     console.log('Starting playback:', {
-      frameCount: trajectoryData.frameCount,
-      frameRate: trajectoryData.frameRate,
+      trajectories: loadedTrajectories.length,
+      maxFrameCount,
+      frameRate: primaryFrameRate,
       playbackSpeed
     });
 
@@ -53,15 +68,15 @@ export default function VisualizePage() {
       const deltaTime = (currentTime - lastFrameTimeRef.current) / 1000;
       lastFrameTimeRef.current = currentTime;
 
-      const frameDelta = deltaTime * trajectoryData.frameRate * playbackSpeed;
+      const frameDelta = deltaTime * primaryFrameRate * playbackSpeed;
 
       setCurrentFrame((prevFrame) => {
         const nextFrame = prevFrame + frameDelta;
 
-        if (nextFrame >= trajectoryData.frameCount - 1) {
+        if (nextFrame >= maxFrameCount - 1) {
           console.log('Playback finished');
           setPlaying(false);
-          return trajectoryData.frameCount - 1;
+          return maxFrameCount - 1;
         }
 
         return nextFrame;
@@ -77,40 +92,72 @@ export default function VisualizePage() {
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [playing, playbackSpeed, trajectoryData]);
+  }, [playing, playbackSpeed, loadedTrajectories, maxFrameCount, primaryFrameRate]);
 
   const handleModelSelect = (modelXML: string, model: ModelMetadata) => {
     setSelectedModelXML(modelXML);
     setSelectedModel(model);
   };
 
+  // Add trajectory from server selector
   const handleTrajectorySelect = async (trajectoryBlob: Blob, trajectory: TrajectoryMetadata) => {
     console.log('[VISUALIZE PAGE] handleTrajectorySelect called with:', trajectory.filename);
-    console.log('[VISUALIZE PAGE] Blob received:', { size: trajectoryBlob.size, type: trajectoryBlob.type });
-
-    setSelectedTrajectory(trajectory);
-    console.log('[VISUALIZE PAGE] selectedTrajectory state updated');
 
     try {
-      console.log('[VISUALIZE PAGE] Starting trajectory parsing...');
       const parsedData = await parseTrajectory(trajectoryBlob, trajectory.filename);
-      console.log('[VISUALIZE PAGE] Parsed trajectory data:', {
-        frameCount: parsedData.frameCount,
-        frameRate: parsedData.frameRate,
-        qposArrays: parsedData.qpos.length,
-        firstFrameQposLength: parsedData.qpos[0]?.length,
-        firstFewQpos: parsedData.qpos[0]?.slice(0, 5)
-      });
 
-      console.log('[VISUALIZE PAGE] Setting trajectoryData state...');
-      setTrajectoryData(parsedData);
-      setCurrentFrame(0);
-      setPlaying(false);
-      console.log('[VISUALIZE PAGE] Trajectory loaded successfully:', `${parsedData.frameCount} frames at ${parsedData.frameRate} fps`);
+      const newTrajectory: LoadedTrajectory = {
+        id: `server-${trajectory.id}-${Date.now()}`,
+        name: trajectory.filename,
+        data: parsedData,
+        isGhost: false,
+        source: 'server'
+      };
+
+      setLoadedTrajectories(prev => [...prev, newTrajectory]);
+      console.log('[VISUALIZE PAGE] Server trajectory loaded:', newTrajectory.name);
     } catch (error) {
       console.error('[VISUALIZE PAGE] Failed to parse trajectory:', error);
       alert('Failed to load trajectory: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
+  };
+
+  // Add trajectory from local file upload
+  const handleLocalTrajectoryUpload = async (file: File) => {
+    console.log('[VISUALIZE PAGE] handleLocalTrajectoryUpload called with:', file.name);
+
+    try {
+      const blob = new Blob([await file.arrayBuffer()], { type: file.type });
+      const parsedData = await parseTrajectory(blob, file.name);
+
+      const newTrajectory: LoadedTrajectory = {
+        id: `local-${Date.now()}`,
+        name: file.name,
+        data: parsedData,
+        isGhost: false,
+        source: 'local'
+      };
+
+      setLoadedTrajectories(prev => [...prev, newTrajectory]);
+      console.log('[VISUALIZE PAGE] Local trajectory loaded:', newTrajectory.name);
+    } catch (error) {
+      console.error('[VISUALIZE PAGE] Failed to load local trajectory:', error);
+      alert(`Failed to load trajectory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  // Toggle ghost mode for a trajectory
+  const handleToggleGhost = (id: string) => {
+    setLoadedTrajectories(prev =>
+      prev.map(traj =>
+        traj.id === id ? { ...traj, isGhost: !traj.isGhost } : traj
+      )
+    );
+  };
+
+  // Remove a trajectory
+  const handleRemoveTrajectory = (id: string) => {
+    setLoadedTrajectories(prev => prev.filter(traj => traj.id !== id));
   };
 
   const handlePlayPause = () => {
@@ -179,28 +226,28 @@ export default function VisualizePage() {
           break;
         case 'ArrowLeft': // Left - Step back 1 second
           e.preventDefault();
-          if (trajectoryData) {
-            const newFrame = Math.max(0, currentFrame - trajectoryData.frameRate);
+          if (loadedTrajectories.length > 0) {
+            const newFrame = Math.max(0, currentFrame - primaryFrameRate);
             handleFrameChange(newFrame);
           }
           break;
         case 'ArrowRight': // Right - Step forward 1 second
           e.preventDefault();
-          if (trajectoryData) {
-            const newFrame = Math.min(trajectoryData.frameCount - 1, currentFrame + trajectoryData.frameRate);
+          if (loadedTrajectories.length > 0) {
+            const newFrame = Math.min(maxFrameCount - 1, currentFrame + primaryFrameRate);
             handleFrameChange(newFrame);
           }
           break;
         case 'ArrowUp': // Up - Step forward 1 frame
           e.preventDefault();
-          if (trajectoryData) {
-            const newFrame = Math.min(trajectoryData.frameCount - 1, Math.floor(currentFrame) + 1);
+          if (loadedTrajectories.length > 0) {
+            const newFrame = Math.min(maxFrameCount - 1, Math.floor(currentFrame) + 1);
             handleFrameChange(newFrame);
           }
           break;
         case 'ArrowDown': // Down - Step back 1 frame
           e.preventDefault();
-          if (trajectoryData) {
+          if (loadedTrajectories.length > 0) {
             const newFrame = Math.max(0, Math.floor(currentFrame) - 1);
             handleFrameChange(newFrame);
           }
@@ -210,56 +257,8 @@ export default function VisualizePage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playing, currentFrame, trajectoryData]);
+  }, [playing, currentFrame, loadedTrajectories.length, maxFrameCount, primaryFrameRate]);
 
-  // Prepare trajectory playback state for the viewer (must be before any returns)
-  const trajectoryPlaybackState: TrajectoryPlaybackState | undefined = trajectoryData
-    ? {
-        qpos: trajectoryData.qpos,
-        currentFrame: Math.floor(currentFrame),
-        isPlaying: playing,
-        playbackSpeed: playbackSpeed,
-        frameRate: trajectoryData.frameRate,
-      }
-    : undefined;
-
-  // Log whenever trajectoryData state changes
-  useEffect(() => {
-    if (trajectoryData) {
-      console.log('[VISUALIZE PAGE] trajectoryData state updated:', {
-        frameCount: trajectoryData.frameCount,
-        frameRate: trajectoryData.frameRate,
-        qposLength: trajectoryData.qpos.length
-      });
-    } else {
-      console.log('[VISUALIZE PAGE] trajectoryData state is null');
-    }
-  }, [trajectoryData]);
-
-  // Log whenever trajectoryPlaybackState changes
-  useEffect(() => {
-    if (trajectoryPlaybackState) {
-      console.log('[VISUALIZE PAGE] trajectoryPlaybackState computed:', {
-        hasQpos: !!trajectoryPlaybackState.qpos,
-        qposLength: trajectoryPlaybackState.qpos?.length,
-        currentFrame: trajectoryPlaybackState.currentFrame,
-        isPlaying: trajectoryPlaybackState.isPlaying
-      });
-    } else {
-      console.log('[VISUALIZE PAGE] trajectoryPlaybackState is undefined');
-    }
-  }, [trajectoryPlaybackState]);
-
-  // Log trajectory state changes (only when playback state changes, not every frame)
-  useEffect(() => {
-    if (trajectoryPlaybackState && trajectoryPlaybackState.isPlaying) {
-      console.log('Trajectory playback active:', {
-        currentFrame: trajectoryPlaybackState.currentFrame,
-        totalFrames: trajectoryPlaybackState.qpos.length,
-        playbackSpeed: trajectoryPlaybackState.playbackSpeed
-      });
-    }
-  }, [trajectoryPlaybackState?.isPlaying]);
 
   // Redirect to login if not authenticated (after all hooks)
   useEffect(() => {
@@ -300,9 +299,9 @@ export default function VisualizePage() {
                   <span>{selectedModel.filename}</span>
                 </div>
               )}
-              {trajectoryData && (
+              {loadedTrajectories.length > 0 && (
                 <div className="text-gray-500">
-                  {trajectoryData.frameCount} frames @ {trajectoryData.frameRate} fps
+                  {loadedTrajectories.length} trajectories • {maxFrameCount} frames @ {primaryFrameRate} fps
                 </div>
               )}
             </div>
@@ -333,17 +332,17 @@ export default function VisualizePage() {
                   id="timeline-slider"
                   type="range"
                   min="0"
-                  max={trajectoryData ? trajectoryData.frameCount - 1 : 0}
-                  value={trajectoryData ? Math.floor(currentFrame) : 0}
+                  max={maxFrameCount > 0 ? maxFrameCount - 1 : 0}
+                  value={maxFrameCount > 0 ? Math.floor(currentFrame) : 0}
                   onChange={(e) => handleFrameChange(parseInt(e.target.value))}
-                  disabled={!trajectoryData}
+                  disabled={loadedTrajectories.length === 0}
                   aria-label="Timeline scrubber"
                   className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>{trajectoryData ? (currentFrame / trajectoryData.frameRate).toFixed(2) : '0.00'}s</span>
-                  <span>Frame {trajectoryData ? Math.floor(currentFrame) + 1 : 0} / {trajectoryData ? trajectoryData.frameCount : 0}</span>
-                  <span>{trajectoryData ? (trajectoryData.frameCount / trajectoryData.frameRate).toFixed(2) : '0.00'}s</span>
+                  <span>{maxFrameCount > 0 ? (currentFrame / primaryFrameRate).toFixed(2) : '0.00'}s</span>
+                  <span>Frame {maxFrameCount > 0 ? Math.floor(currentFrame) + 1 : 0} / {maxFrameCount}</span>
+                  <span>{maxFrameCount > 0 ? (maxFrameCount / primaryFrameRate).toFixed(2) : '0.00'}s</span>
                 </div>
               </div>
 
@@ -352,7 +351,7 @@ export default function VisualizePage() {
                 <button
                   type="button"
                   onClick={handlePlayPause}
-                  disabled={!trajectoryData}
+                  disabled={loadedTrajectories.length === 0}
                   className="w-full px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
                 >
                   {playing ? 'Pause' : 'Play'}
@@ -362,15 +361,15 @@ export default function VisualizePage() {
                   <button
                     type="button"
                     onClick={handleReset}
-                    disabled={!trajectoryData}
+                    disabled={loadedTrajectories.length === 0}
                     className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Reset
                   </button>
                   <button
                     type="button"
-                    onClick={() => trajectoryData && handleFrameChange(Math.min(currentFrame + 1, trajectoryData.frameCount - 1))}
-                    disabled={!trajectoryData}
+                    onClick={() => maxFrameCount > 0 && handleFrameChange(Math.min(currentFrame + 1, maxFrameCount - 1))}
+                    disabled={loadedTrajectories.length === 0}
                     className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Step →
@@ -387,7 +386,7 @@ export default function VisualizePage() {
                   id="playback-speed"
                   value={playbackSpeed}
                   onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
-                  disabled={!trajectoryData}
+                  disabled={loadedTrajectories.length === 0}
                   aria-label="Playback speed"
                   className="w-full px-3 py-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -433,7 +432,7 @@ export default function VisualizePage() {
               onRecord={handleRecord}
               isRecording={isRecording}
               recordingProgress={recordingProgress}
-              disabled={!trajectoryData}
+              disabled={loadedTrajectories.length === 0}
             />
           </div>
 
@@ -445,11 +444,31 @@ export default function VisualizePage() {
             />
           </div>
 
-          {/* Trajectories Section */}
-          <div className="border-b border-gray-700">
-            <TrajectorySelector
-              onTrajectorySelect={handleTrajectorySelect}
-              selectedTrajectoryId={selectedTrajectory?.id}
+          {/* Trajectory Loading Section */}
+          <div className="p-4 border-b border-gray-700">
+            <h3 className="text-sm font-medium text-gray-300 mb-3">Add Trajectory</h3>
+
+            {/* Server trajectories */}
+            <div className="mb-3">
+              <TrajectorySelector
+                onTrajectorySelect={handleTrajectorySelect}
+                selectedTrajectoryId={undefined}
+              />
+            </div>
+
+            {/* Local upload */}
+            <TrajectoryUpload
+              onFileSelect={handleLocalTrajectoryUpload}
+              disabled={!selectedModel}
+            />
+          </div>
+
+          {/* Loaded Trajectories List */}
+          <div className="p-4 border-b border-gray-700">
+            <TrajectoryList
+              trajectories={loadedTrajectories}
+              onToggleGhost={handleToggleGhost}
+              onRemove={handleRemoveTrajectory}
             />
           </div>
 
@@ -469,7 +488,8 @@ export default function VisualizePage() {
             modelXML={selectedModelXML}
             modelId={selectedModel?.id}
             modelMetadata={selectedModel ?? undefined}
-            trajectory={trajectoryPlaybackState}
+            trajectories={loadedTrajectories}
+            currentFrame={Math.floor(currentFrame)}
             options={viewerOptions}
             onModelLoaded={() => console.log('Model loaded successfully')}
             onError={(error) => console.error('Viewer error:', error)}

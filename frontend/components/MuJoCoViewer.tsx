@@ -12,7 +12,7 @@ import {
   MuJoCoModule,
 } from '@/lib/mujoco-loader';
 import { modelApi, ModelMetadata } from '@/lib/api';
-import { getPosition, getQuaternion, loadMuJoCoScene, drawTendonsAndFlex } from '@/lib/mujoco-utils';
+import { loadMuJoCoScene, applyQposAndUpdateBodies, createGhostBodies } from '@/lib/mujoco-utils';
 import { MuJoCoCamera } from './VideoControls';
 import {
   createRecordingRenderer,
@@ -34,12 +34,25 @@ export interface TrajectoryPlaybackState {
   frameRate: number;
 }
 
+interface LoadedTrajectory {
+  id: string;
+  name: string;
+  data: {
+    qpos: Float64Array[];
+    frameCount: number;
+    frameRate: number;
+  };
+  isGhost: boolean;
+  source: 'server' | 'local';
+}
+
 interface MuJoCoViewerProps {
   modelXML?: string;
   modelId?: string;
   modelMetadata?: ModelMetadata;
   options?: ViewerOptions;
-  trajectory?: TrajectoryPlaybackState;
+  trajectories: LoadedTrajectory[];
+  currentFrame: number;
   onModelLoaded?: () => void;
   onError?: (error: string) => void;
   onCamerasLoaded?: (cameras: MuJoCoCamera[]) => void;
@@ -51,7 +64,7 @@ export interface MuJoCoViewerRef {
 }
 
 const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJoCoViewer(
-  { modelXML, modelId, modelMetadata, options, trajectory, onModelLoaded, onError, onCamerasLoaded, activeCamera },
+  { modelXML, modelId, modelMetadata, options, trajectories, currentFrame, onModelLoaded, onError, onCamerasLoaded, activeCamera },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -68,8 +81,16 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
   const animationIdRef = useRef<number | null>(null);
   const isInitializedRef = useRef(false);
 
-  // Track trajectory prop in a ref so animation loop can access latest value
-  const trajectoryRef = useRef<TrajectoryPlaybackState | undefined>(trajectory);
+  // Map to store trajectory bodies, data, and root for each loaded trajectory
+  const trajectoryBodiesMap = useRef<Map<string, {
+    bodies: (THREE.Group | null)[];
+    data: any;
+    root: THREE.Group;
+  }>>(new Map());
+
+  // Track trajectories and current frame in refs so animation loop can access latest values
+  const trajectoriesRef = useRef<LoadedTrajectory[]>(trajectories);
+  const currentFrameRef = useRef<number>(currentFrame);
 
   // Axis helper scene and camera for corner inset
   const axisSceneRef = useRef<THREE.Scene | null>(null);
@@ -84,20 +105,11 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Update trajectory ref whenever prop changes
+  // Update trajectory refs whenever props change
   useEffect(() => {
-    trajectoryRef.current = trajectory;
-    if (trajectory) {
-      console.log('[MUJOCO VIEWER] Trajectory prop updated in ref:', {
-        hasQpos: !!trajectory.qpos,
-        qposLength: trajectory.qpos?.length,
-        currentFrame: trajectory.currentFrame,
-        isPlaying: trajectory.isPlaying
-      });
-    } else {
-      console.log('[MUJOCO VIEWER] Trajectory prop cleared (undefined)');
-    }
-  }, [trajectory]);
+    trajectoriesRef.current = trajectories;
+    currentFrameRef.current = currentFrame;
+  }, [trajectories, currentFrame]);
 
   // Load cameras when model changes
   useEffect(() => {
@@ -203,6 +215,103 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
       console.log('  - debugMuJoCo.getMuJoCoRoot() - Get MuJoCo root object');
     }
   }, [sceneRef.current, cameraRef.current, rendererRef.current]);
+
+  // Initialize trajectory bodies when model loads or trajectories change
+  useEffect(() => {
+    if (!modelRef.current || !mujocoRef.current || !sceneRef.current) {
+      return;
+    }
+
+    // Check if bodies are loaded
+    const bodiesArray = Object.values(bodiesRef.current);
+    if (bodiesArray.length === 0) {
+      return;
+    }
+
+    console.log('[TRAJECTORIES] Syncing trajectory bodies with loaded trajectories');
+
+    // Get list of trajectory IDs we need
+    const neededIds = new Set(trajectories.map(t => t.id));
+
+    // Remove trajectories that are no longer loaded
+    trajectoryBodiesMap.current.forEach((entry, id) => {
+      if (!neededIds.has(id)) {
+        sceneRef.current?.remove(entry.root);
+        if (entry.data && entry.data.delete) {
+          entry.data.delete();
+        }
+        trajectoryBodiesMap.current.delete(id);
+        console.log(`[TRAJECTORIES] Removed trajectory: ${id}`);
+      }
+    });
+
+    // Add or update existing trajectories
+    trajectories.forEach(traj => {
+      const existing = trajectoryBodiesMap.current.get(traj.id);
+
+      if (!existing) {
+        // Create new trajectory bodies
+        const bodies: (THREE.Group | null)[] = traj.isGhost
+          ? createGhostBodies(bodiesArray as (THREE.Group | null)[])
+          : bodiesArray.map(b => b?.clone(true) ?? null);
+
+        // Create MuJoCo data instance
+        const data = new mujocoRef.current!.MjData(modelRef.current);
+
+        // Create root group
+        const root = new THREE.Group();
+        root.name = `Trajectory_${traj.id}`;
+        bodies.forEach(body => body && root.add(body));
+        sceneRef.current!.add(root);
+
+        trajectoryBodiesMap.current.set(traj.id, { bodies, data, root });
+        console.log(`[TRAJECTORIES] Added trajectory: ${traj.name} (ghost: ${traj.isGhost})`);
+        console.log(`[TENDON DEBUG] Trajectory ${traj.id} root created: ${root.name}, has cylinders: ${!!(root as any).cylinders}, has spheres: ${!!(root as any).spheres}`);
+      } else {
+        // Update ghost appearance if isGhost changed
+        existing.root.traverse(obj => {
+          if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshPhongMaterial) {
+            if (traj.isGhost) {
+              obj.material.transparent = true;
+              obj.material.opacity = 0.35;
+              obj.material.depthWrite = false;
+              obj.renderOrder = -1;
+            } else {
+              obj.material.transparent = false;
+              obj.material.opacity = 1.0;
+              obj.material.depthWrite = true;
+              obj.renderOrder = 0;
+            }
+          }
+        });
+      }
+    });
+
+    // Hide/show original bodies based on whether trajectories are loaded
+    if (mujocoRootRef.current) {
+      if (trajectories.length > 0) {
+        // Hide original bodies when trajectories are loaded
+        mujocoRootRef.current.visible = false;
+        console.log('[TRAJECTORIES] Hiding original bodies (trajectories loaded)');
+      } else {
+        // Show original bodies when no trajectories are loaded
+        mujocoRootRef.current.visible = true;
+        console.log('[TRAJECTORIES] Showing original bodies (no trajectories)');
+      }
+    }
+
+    return () => {
+      // Cleanup all trajectory bodies
+      trajectoryBodiesMap.current.forEach((entry) => {
+        sceneRef.current?.remove(entry.root);
+        if (entry.data && entry.data.delete) {
+          entry.data.delete();
+        }
+      });
+      trajectoryBodiesMap.current.clear();
+      console.log('[TRAJECTORIES] Cleaned up all trajectory bodies');
+    };
+  }, [trajectories, modelRef.current, mujocoRef.current, sceneRef.current, Object.keys(bodiesRef.current).length]);
 
   // Helper to calculate object depth in scene graph
   const getObjectDepth = (object: THREE.Object3D, root: THREE.Object3D): number => {
@@ -643,9 +752,40 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
     mujocoRootRef.current = mujocoRoot;
     bodiesRef.current = bodies;
     meshesRef.current = meshes;
+    console.log(`[TENDON DEBUG] Main scene loaded, mujocoRoot: ${mujocoRoot.name}, has cylinders: ${!!(mujocoRoot as any).cylinders}, has spheres: ${!!(mujocoRoot as any).spheres}`);
 
     // Forward simulation once to get initial state
     mujoco.mj_forward(model, data);
+
+    // Update body transforms to default pose (qpos0)
+    // This ensures bodies appear in correct position when no trajectory is loaded
+    for (let b = 0; b < model.nbody; b++) {
+      if (bodies[b]) {
+        const pos = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+
+        // Get position from MuJoCo data (already at qpos0 after mj_forward)
+        pos.set(
+          data.xpos[b * 3 + 0],
+          data.xpos[b * 3 + 1],
+          data.xpos[b * 3 + 2]
+        );
+
+        // Get quaternion from MuJoCo data
+        quat.set(
+          data.xquat[b * 4 + 1],  // x
+          data.xquat[b * 4 + 2],  // y
+          data.xquat[b * 4 + 3],  // z
+          data.xquat[b * 4 + 0]   // w
+        );
+
+        bodies[b].position.copy(pos);
+        bodies[b].quaternion.copy(quat);
+        bodies[b].updateWorldMatrix(false, false);
+      }
+    }
+
+    console.log('[MuJoCo] Bodies updated to default pose (qpos0)');
   };
 
   const clearSceneObjects = () => {
@@ -688,124 +828,39 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         controlsRef.current.update();
       }
 
-      // Use trajectoryRef.current to get the latest trajectory value
-      const currentTrajectory = trajectoryRef.current;
+      // Render all loaded trajectories
+      const currentTrajectories = trajectoriesRef.current;
+      const frame = currentFrameRef.current;
 
-      // Debug: Log trajectory prop on every frame (will be very verbose)
-      if (currentTrajectory) {
-        console.log('[DEBUG] Trajectory prop received:', {
-          hasQpos: !!currentTrajectory.qpos,
-          qposLength: currentTrajectory.qpos?.length,
-          currentFrame: currentTrajectory.currentFrame,
-          isPlaying: currentTrajectory.isPlaying
+      if (currentTrajectories.length > 0 && modelRef.current && mujocoRef.current) {
+        currentTrajectories.forEach((traj, index) => {
+          const entry = trajectoryBodiesMap.current.get(traj.id);
+          if (!entry || !traj.data.qpos.length) return;
+
+          const trajectoryFrame = Math.min(frame, traj.data.qpos.length - 1);
+          const qposData = traj.data.qpos[trajectoryFrame];
+
+          if (qposData && qposData.length === modelRef.current!.nq) {
+            console.log(`[TENDON DEBUG] Render loop: Updating trajectory ${index} (${traj.name}, root: ${entry.root.name}), passing undefined as mujocoRoot`);
+            applyQposAndUpdateBodies(
+              qposData,
+              mujocoRef.current,
+              modelRef.current,
+              entry.data,
+              entry.bodies,
+              undefined, // Don't pass root - skip tendon/flex rendering on trajectory clones
+              false // swizzle=false for Y-up coordinate system
+            );
+          }
         });
-      } else {
-        console.log('[DEBUG] No trajectory prop');
       }
 
-      // Handle trajectory playback if trajectory data is provided
-      if (currentTrajectory && currentTrajectory.qpos.length > 0) {
-        if (!dataRef.current || !modelRef.current || !mujocoRef.current) {
-          // Model not loaded yet
-          if (currentTrajectory.currentFrame === 0) {
-            console.warn('Trajectory data provided but model not loaded yet');
-          }
-        } else {
-          const currentFrame = Math.min(currentTrajectory.currentFrame, currentTrajectory.qpos.length - 1);
-          const qposData = currentTrajectory.qpos[currentFrame];
-
-          // Set qpos data for current frame
-          if (qposData && qposData.length === modelRef.current.nq) {
-            console.log(`[TRAJECTORY] Applying frame ${currentFrame}`);
-
-            // Store original qpos for comparison
-            const originalQpos0 = dataRef.current.qpos[0];
-            const originalXpos = [dataRef.current.xpos[3], dataRef.current.xpos[4], dataRef.current.xpos[5]];
-
-            // Copy qpos data to MuJoCo's qpos array
-            for (let i = 0; i < qposData.length; i++) {
-              dataRef.current.qpos[i] = qposData[i];
-            }
-
-            console.log(`[MUJOCO] Before mj_forward: qpos[0] changed from ${originalQpos0.toFixed(3)} to ${dataRef.current.qpos[0].toFixed(3)}`);
-
-            // Compute forward kinematics to update xpos and xquat from qpos
-            mujocoRef.current.mj_forward(modelRef.current, dataRef.current);
-
-            const newXpos = [dataRef.current.xpos[3], dataRef.current.xpos[4], dataRef.current.xpos[5]];
-            console.log(`[MUJOCO] After mj_forward: xpos changed from [${originalXpos.map(v => v.toFixed(3)).join(', ')}] to [${newXpos.map(v => v.toFixed(3)).join(', ')}]`);
-
-            // Log every 30 frames
-            if (currentFrame % 30 === 0 && currentFrame > 0) {
-              console.log(`[SUMMARY] Frame ${currentFrame}: qpos[0-2] = [${dataRef.current.qpos[0].toFixed(3)}, ${dataRef.current.qpos[1].toFixed(3)}, ${dataRef.current.qpos[2].toFixed(3)}], body[1] xpos = [${newXpos.map(v => v.toFixed(3)).join(', ')}]`);
-            }
-          } else if (qposData) {
-            console.warn(`Qpos dimension mismatch: trajectory has ${qposData.length} but model expects ${modelRef.current.nq}`);
-          }
-        }
-      }
-
-      // Update body transforms from MuJoCo data
-      if (dataRef.current && modelRef.current) {
-        // Log when updating Three.js transforms (only when trajectory is active)
-        if (currentTrajectory && currentTrajectory.qpos.length > 0) {
-          if (bodiesRef.current[1]) {
-            const beforePos = bodiesRef.current[1].position.clone();
-            console.log(`[THREE.JS] Before update: body[1] position = [${beforePos.x.toFixed(3)}, ${beforePos.y.toFixed(3)}, ${beforePos.z.toFixed(3)}]`);
-          }
-        }
-
-        // swizzle=false for Y-up coordinate system (MuJoCo native)
-        for (let b = 0; b < modelRef.current.nbody; b++) {
-          if (bodiesRef.current[b]) {
-            // Store old position for comparison
-            const oldPos = bodiesRef.current[b].position.clone();
-
-            getPosition(dataRef.current.xpos, b, bodiesRef.current[b].position, false);
-            getQuaternion(dataRef.current.xquat, b, bodiesRef.current[b].quaternion, false);
-            bodiesRef.current[b].updateWorldMatrix(false, false);
-
-            // Log body 1 position changes when trajectory is active
-            if (b === 1 && currentTrajectory && currentTrajectory.qpos.length > 0) {
-              const newPos = bodiesRef.current[b].position;
-              console.log(`[THREE.JS] Body[1] position updated: [${oldPos.x.toFixed(3)}, ${oldPos.y.toFixed(3)}, ${oldPos.z.toFixed(3)}] -> [${newPos.x.toFixed(3)}, ${newPos.y.toFixed(3)}, ${newPos.z.toFixed(3)}]`);
-            }
-          }
-        }
-
-        // Log Three.js body position to verify it's updating (only when trajectory is active)
-        if (currentTrajectory && currentTrajectory.qpos.length > 0 && currentTrajectory.currentFrame % 30 === 0 && currentTrajectory.currentFrame > 0) {
-          if (bodiesRef.current[1]) {
-            const pos = bodiesRef.current[1].position;
-            console.log(`[SUMMARY] Frame ${currentTrajectory.currentFrame}: Three.js body[1] pos = [${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}]`);
-          }
-        }
-
-        // Update tendons and flex vertices using utility function
-        // swizzle=false for Y-up coordinate system (MuJoCo native)
-        if (mujocoRootRef.current) {
-          drawTendonsAndFlex(mujocoRootRef.current, modelRef.current, dataRef.current, false);
-        }
-
-        // Update camera from MuJoCo if using a MuJoCo camera
-        // Use ref instead of closure variable to access latest camera ID
-        if (activeCameraIdRef.current >= 0 && cameraRef.current && dataRef.current && modelRef.current) {
+      // Update camera from MuJoCo if using a MuJoCo camera
+      // Use ref instead of closure variable to access latest camera ID
+      if (activeCameraIdRef.current >= 0 && cameraRef.current && dataRef.current && modelRef.current) {
           const camId = activeCameraIdRef.current;
-
-          // Log camera update every 30 frames
-          const shouldLog = currentTrajectory && currentTrajectory.currentFrame % 30 === 0;
-          if (shouldLog || !currentTrajectory) {
-            console.log(`[CAMERA UPDATE] Updating MuJoCo camera (id: ${camId})`);
-          }
-
           updateCameraFromMuJoCo(cameraRef.current, dataRef.current, modelRef.current, camId);
-
-          if (shouldLog || !currentTrajectory) {
-            console.log(`[CAMERA UPDATE] Camera position: [${cameraRef.current.position.x.toFixed(3)}, ${cameraRef.current.position.y.toFixed(3)}, ${cameraRef.current.position.z.toFixed(3)}]`);
-            console.log(`[CAMERA UPDATE] Camera FOV: ${cameraRef.current.fov.toFixed(1)}°`);
-          }
         }
-      }
 
       if (sceneRef.current && cameraRef.current && rendererRef.current) {
         const renderer = rendererRef.current;
@@ -816,18 +871,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         // Clear everything first
         renderer.clear();
 
-        // Log rendering when trajectory is active
-        if (currentTrajectory && currentTrajectory.qpos.length > 0 && currentTrajectory.currentFrame % 30 === 0 && currentTrajectory.currentFrame > 0) {
-          console.log(`[RENDER] Rendering frame ${currentTrajectory.currentFrame}`);
-        }
-
         // Render main scene with full viewport
         renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
         renderer.render(sceneRef.current, cameraRef.current);
-
-        if (currentTrajectory && currentTrajectory.qpos.length > 0 && currentTrajectory.currentFrame % 30 === 0 && currentTrajectory.currentFrame > 0) {
-          console.log(`[RENDER] Frame ${currentTrajectory.currentFrame} rendered`);
-        }
 
         // Render axis helper in top-right corner (if enabled)
         const showMoving = options?.showMovingAxes ?? true;
@@ -875,21 +921,23 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
   useImperativeHandle(ref, () => ({
     recordVideo: async (onProgress?: (progress: number) => void) => {
       // Validate prerequisites
-      if (!trajectoryRef.current || !trajectoryRef.current.qpos.length) {
-        throw new Error('No trajectory loaded');
+      if (trajectoriesRef.current.length === 0) {
+        throw new Error('No trajectories loaded');
       }
       if (!sceneRef.current || !cameraRef.current || !rendererRef.current) {
         throw new Error('Scene not initialized');
       }
-      if (!modelRef.current || !dataRef.current || !mujocoRef.current) {
+      if (!modelRef.current || !mujocoRef.current) {
         throw new Error('MuJoCo not initialized');
       }
 
-      console.log('[VIDEO] Starting video recording with FFmpeg.wasm');
+      console.log('[VIDEO] Starting video recording');
 
-      const trajectory = trajectoryRef.current;
-      const totalTrajectoryFrames = trajectory.qpos.length;
-      const trajectoryFrameRate = trajectory.frameRate; // Hz (e.g., 100 fps)
+      // Use the longest trajectory to determine video duration
+      const trajectories = trajectoriesRef.current;
+      const totalTrajectoryFrames = trajectories.reduce((max, traj) =>
+        Math.max(max, traj.data.frameCount), 0);
+      const trajectoryFrameRate = trajectories[0].data.frameRate; // Use first trajectory's frame rate
 
       // Calculate trajectory duration in seconds
       const trajectoryDuration = totalTrajectoryFrames / trajectoryFrameRate;
@@ -898,7 +946,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
       const videoFrameRate = 30; // Target video fps
       const totalVideoFrames = Math.round(trajectoryDuration * videoFrameRate);
 
-      console.log(`[VIDEO] Trajectory: ${totalTrajectoryFrames} frames at ${trajectoryFrameRate} Hz = ${trajectoryDuration.toFixed(2)}s`);
+      console.log(`[VIDEO] ${trajectories.length} trajectories: max ${totalTrajectoryFrames} frames at ${trajectoryFrameRate} Hz = ${trajectoryDuration.toFixed(2)}s`);
       console.log(`[VIDEO] Video: ${totalVideoFrames} frames at ${videoFrameRate} fps`);
 
       // Create off-screen renderer (matches main renderer's color space)
@@ -929,29 +977,24 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
             totalTrajectoryFrames - 1
           );
 
-          const qposData = trajectory.qpos[trajectoryFrameIndex];
+          // Render all loaded trajectories
+          trajectories.forEach(traj => {
+            const entry = trajectoryBodiesMap.current.get(traj.id);
+            if (!entry || trajectoryFrameIndex >= traj.data.qpos.length) return;
 
-          // Apply qpos to MuJoCo data
-          for (let i = 0; i < qposData.length; i++) {
-            dataRef.current.qpos[i] = qposData[i];
-          }
-
-          // Compute forward kinematics
-          mujocoRef.current.mj_forward(modelRef.current, dataRef.current);
-
-          // Update body transforms in THREE.js scene
-          for (let b = 0; b < modelRef.current.nbody; b++) {
-            if (bodiesRef.current[b]) {
-              getPosition(dataRef.current.xpos, b, bodiesRef.current[b].position, false);
-              getQuaternion(dataRef.current.xquat, b, bodiesRef.current[b].quaternion, false);
-              bodiesRef.current[b].updateWorldMatrix(false, false);
+            const qposData = traj.data.qpos[trajectoryFrameIndex];
+            if (qposData && qposData.length === modelRef.current!.nq) {
+              applyQposAndUpdateBodies(
+                qposData,
+                mujocoRef.current,
+                modelRef.current,
+                entry.data,
+                entry.bodies,
+                undefined, // Don't pass root - skip tendon/flex rendering on trajectory clones
+                false
+              );
             }
-          }
-
-          // Update tendons and flex
-          if (mujocoRootRef.current) {
-            drawTendonsAndFlex(mujocoRootRef.current, modelRef.current, dataRef.current, false);
-          }
+          });
 
           // Update MuJoCo camera if active
           if (activeCameraIdRef.current >= 0) {

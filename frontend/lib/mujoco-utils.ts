@@ -398,7 +398,7 @@ export function loadMuJoCoScene(
   maxCylinders = Math.max(1, maxCylinders);
   maxSpheres = Math.max(1, maxSpheres);
 
-  console.log(`Creating instanced meshes: ${maxCylinders} cylinders, ${maxSpheres} spheres (for ${model.ntendon} tendons, ${model.nflex} flex)`);
+  console.log(`[TENDON DEBUG] Creating instanced meshes: ${maxCylinders} cylinders, ${maxSpheres} spheres (for ${model.ntendon} tendons, ${model.nflex} flex)`);
 
   // Parse tendons - create instanced meshes for efficient rendering
   // Use MeshPhongMaterial so tendons are affected by lighting (matching MuJoCo)
@@ -415,7 +415,9 @@ export function loadMuJoCoScene(
   );
   (mujocoRoot as any).cylinders.receiveShadow = true;
   (mujocoRoot as any).cylinders.castShadow = true;
+  (mujocoRoot as any).cylinders.count = 0; // Start with 0 visible instances
   mujocoRoot.add((mujocoRoot as any).cylinders);
+  console.log(`[TENDON DEBUG] Created cylinders InstancedMesh on mujocoRoot (${mujocoRoot.name}), initial count: 0`);
 
   (mujocoRoot as any).spheres = new THREE.InstancedMesh(
     new THREE.SphereGeometry(1, 10, 10),
@@ -424,7 +426,9 @@ export function loadMuJoCoScene(
   );
   (mujocoRoot as any).spheres.receiveShadow = true;
   (mujocoRoot as any).spheres.castShadow = true;
+  (mujocoRoot as any).spheres.count = 0; // Start with 0 visible instances
   mujocoRoot.add((mujocoRoot as any).spheres);
+  console.log(`[TENDON DEBUG] Created spheres InstancedMesh on mujocoRoot (${mujocoRoot.name}), initial count: 0`);
 
   // Add bodies to scene hierarchy
   for (let b = 0; b < model.nbody; b++) {
@@ -446,6 +450,110 @@ export function loadMuJoCoScene(
 }
 
 /**
+ * Apply qpos to MuJoCo model and update THREE.js body transforms
+ * Reusable function for updating trajectory visualization (both real and ghost)
+ *
+ * @param qpos - Joint positions array
+ * @param mujoco - MuJoCo module instance
+ * @param model - MuJoCo model
+ * @param data - MuJoCo data
+ * @param bodies - Array of THREE.js body groups
+ * @param mujocoRoot - MuJoCo scene root (for tendons/flex) - optional
+ * @param swizzle - Whether to apply coordinate swizzle (default: false for Z-up)
+ */
+export function applyQposAndUpdateBodies(
+  qpos: Float64Array,
+  mujoco: any,
+  model: any,
+  data: any,
+  bodies: (THREE.Group | null)[],
+  mujocoRoot?: THREE.Group,
+  swizzle: boolean = false
+): void {
+  // Validate qpos dimension
+  if (qpos.length !== model.nq) {
+    console.warn(`Qpos dimension mismatch: ${qpos.length} vs ${model.nq}`);
+    return;
+  }
+
+  // Copy qpos to MuJoCo data
+  for (let i = 0; i < qpos.length; i++) {
+    data.qpos[i] = qpos[i];
+  }
+
+  // Compute forward kinematics
+  mujoco.mj_forward(model, data);
+
+  // Update body transforms in THREE.js scene
+  for (let b = 0; b < model.nbody; b++) {
+    const body = bodies[b];
+    if (body) {
+      getPosition(data.xpos, b, body.position, swizzle);
+      getQuaternion(data.xquat, b, body.quaternion, swizzle);
+      body.updateWorldMatrix(false, false);
+    }
+  }
+
+  // Update tendons and flex
+  if (mujocoRoot) {
+    console.log(`[TENDON DEBUG] applyQposAndUpdateBodies: mujocoRoot provided (${mujocoRoot.name}), calling drawTendonsAndFlex`);
+    drawTendonsAndFlex(mujocoRoot, model, data, swizzle);
+  } else {
+    console.log(`[TENDON DEBUG] applyQposAndUpdateBodies: mujocoRoot is undefined, skipping tendon rendering`);
+  }
+}
+
+/**
+ * Clone MuJoCo scene bodies with ghost appearance
+ * Creates semi-transparent copies for reference trajectory visualization
+ *
+ * @param sourceBodies - Original body groups
+ * @param ghostColor - Color for ghost (default: light blue 0x4488ff)
+ * @param opacity - Transparency level (0-1, default: 0.35)
+ * @returns Cloned body groups with ghost materials
+ */
+export function createGhostBodies(
+  sourceBodies: (THREE.Group | null)[],
+  ghostColor: number = 0x4488ff,
+  opacity: number = 0.35
+): (THREE.Group | null)[] {
+  const ghostBodies: (THREE.Group | null)[] = [];
+
+  for (let b = 0; b < sourceBodies.length; b++) {
+    if (!sourceBodies[b]) {
+      ghostBodies[b] = null;
+      continue;
+    }
+
+    // Clone the body group
+    const ghostBody = sourceBodies[b]!.clone(true);
+    ghostBody.name = sourceBodies[b]!.name + '_ghost';
+
+    // Update materials to ghost appearance
+    ghostBody.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        // Clone material to avoid modifying original
+        const ghostMaterial = (obj.material as THREE.Material).clone();
+
+        if (ghostMaterial instanceof THREE.MeshPhongMaterial) {
+          ghostMaterial.color.setHex(ghostColor);
+          ghostMaterial.transparent = true;
+          ghostMaterial.opacity = opacity;
+          ghostMaterial.depthWrite = false; // Prevent z-fighting
+        }
+
+        obj.material = ghostMaterial;
+        obj.renderOrder = -1; // Render before opaque objects
+      }
+    });
+
+    ghostBodies[b] = ghostBody;
+  }
+
+  return ghostBodies;
+}
+
+/**
  * Update tendon and flex vertex rendering
  * Adapted from mujoco_wasm/src/mujocoUtils.js drawTendonsAndFlex
  *
@@ -460,11 +568,14 @@ export function drawTendonsAndFlex(
   data: any,
   swizzle: boolean = false
 ): void {
+  console.log(`[TENDON DEBUG] drawTendonsAndFlex called on root: ${mujocoRoot.name}, has cylinders: ${!!(mujocoRoot as any).cylinders}, has spheres: ${!!(mujocoRoot as any).spheres}`);
+
   // Update tendon transforms
   const identityQuat = new THREE.Quaternion();
   let numWraps = 0;
 
   if (mujocoRoot && (mujocoRoot as any).cylinders && (mujocoRoot as any).spheres) {
+    console.log(`[TENDON DEBUG] Root ${mujocoRoot.name} has cylinder/sphere instances - proceeding with tendon rendering`);
     const mat = new THREE.Matrix4();
     // Get the maximum instance count - this was set when creating the InstancedMesh
     // We need to store it or retrieve it from the instanceMatrix array length / 16
@@ -539,5 +650,6 @@ export function drawTendonsAndFlex(
     (mujocoRoot as any).spheres.count = curFlexSphereInd;
     (mujocoRoot as any).cylinders.instanceMatrix.needsUpdate = true;
     (mujocoRoot as any).spheres.instanceMatrix.needsUpdate = true;
+    console.log(`[TENDON DEBUG] Updated instance counts on ${mujocoRoot.name}: ${numWraps} cylinders, ${curFlexSphereInd} spheres`);
   }
 }
