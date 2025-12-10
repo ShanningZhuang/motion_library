@@ -21,6 +21,7 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [defaultCollapsed, setDefaultCollapsed] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map());
+  const [isExpanded, setIsExpanded] = useState(true);
 
   useEffect(() => {
     loadModels();
@@ -144,25 +145,43 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
 
   if (loading) {
     return (
-      <div className="p-4">
-        <h3 className="text-lg font-semibold mb-4 text-gray-200">Models</h3>
-        <div className="text-gray-400 text-sm">Loading models...</div>
+      <div className="p-3">
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <h3 className="text-lg font-semibold text-white">Models</h3>
+          <span className="text-gray-400">{isExpanded ? '▼' : '▶'}</span>
+        </button>
+        {isExpanded && (
+          <div className="text-gray-400 text-sm mt-4">Loading models...</div>
+        )}
       </div>
     );
   }
 
   if (error && models.length === 0) {
     return (
-      <div className="p-4">
-        <h3 className="text-lg font-semibold mb-4 text-gray-200">Models</h3>
-        <div className="text-red-400 text-sm">{error}</div>
+      <div className="p-3">
         <button
-          type="button"
-          onClick={loadModels}
-          className="mt-2 text-blue-400 hover:text-blue-300 text-sm"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center justify-between text-left"
         >
-          Retry
+          <h3 className="text-lg font-semibold text-white">Models</h3>
+          <span className="text-gray-400">{isExpanded ? '▼' : '▶'}</span>
         </button>
+        {isExpanded && (
+          <div className="mt-4">
+            <div className="text-red-400 text-sm">{error}</div>
+            <button
+              type="button"
+              onClick={loadModels}
+              className="mt-2 text-blue-400 hover:text-blue-300 text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -170,115 +189,126 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
   const folderGroups = groupModelsByFolder();
 
   return (
-    <div className="p-4">
-      <h3 className="text-lg font-semibold mb-4 text-gray-200">Models</h3>
+    <div className="p-3">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <h3 className="text-lg font-semibold text-white">Models</h3>
+        <span className="text-gray-400">{isExpanded ? '▼' : '▶'}</span>
+      </button>
 
-      {error && (
-        <div className="mb-3 text-red-400 text-xs bg-red-900 bg-opacity-20 p-2 rounded">
-          {error}
-        </div>
-      )}
+      {isExpanded && (
+        <div className="mt-4">
 
-      {models.length === 0 ? (
-        <div className="text-gray-400 text-sm">No models available</div>
-      ) : (
-        <div className="space-y-3">
-          {folderGroups.map((group) => {
-            const isCollapsed = collapsedFolders.has(group.folderName);
+          {error && (
+            <div className="mb-3 text-red-400 text-xs bg-red-900 bg-opacity-20 p-2 rounded">
+              {error}
+            </div>
+          )}
 
-            return (
-              <div key={group.folderName} className="space-y-2">
-                {/* Folder Header */}
-                <button
-                  type="button"
-                  onClick={() => toggleFolder(group.folderName)}
-                  className="w-full flex items-center gap-2 p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
-                >
-                  {/* Arrow icon */}
-                  <svg
-                    className={`w-4 h-4 text-gray-400 transition-transform ${
-                      isCollapsed ? '-rotate-90' : ''
-                    }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium text-gray-200">
-                    {group.folderName}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    ({group.models.length})
-                  </span>
-                </button>
+          {models.length === 0 ? (
+            <div className="text-gray-400 text-sm">No models available</div>
+          ) : (
+            <div className="space-y-3">
+              {folderGroups.map((group) => {
+                const isCollapsed = collapsedFolders.has(group.folderName);
 
-                {/* Models in folder */}
-                {!isCollapsed && (
-                  <div className="space-y-2">
-                    {group.models.map((model) => {
-                      const isSelected = model.id === selectedModelId;
-                      const isLoading = model.id === loadingModelId;
+                return (
+                  <div key={group.folderName} className="space-y-2">
+                    {/* Folder Header */}
+                    <button
+                      type="button"
+                      onClick={() => toggleFolder(group.folderName)}
+                      className="w-full flex items-center gap-2 p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                    >
+                      {/* Arrow icon */}
+                      <svg
+                        className={`w-4 h-4 text-gray-400 transition-transform ${
+                          isCollapsed ? '-rotate-90' : ''
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                      <span className="text-sm font-medium text-gray-200">
+                        {group.folderName}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        ({group.models.length})
+                      </span>
+                    </button>
 
-                      return (
-                        <button
-                          key={model.id}
-                          type="button"
-                          onClick={() => handleModelClick(model)}
-                          disabled={isLoading}
-                          className={`
-                            w-full text-left p-3 rounded transition-colors
-                            ${
-                              isSelected
-                                ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
-                                : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
-                            }
-                            ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
-                          `}
-                        >
-                          <div className="flex gap-3">
-                            {/* Thumbnail column */}
-                            <div className="flex-shrink-0 w-20 h-20 bg-gray-600 rounded overflow-hidden">
-                              {thumbnailUrls.get(model.id) ? (
-                                <img
-                                  src={thumbnailUrls.get(model.id)}
-                                  alt={model.filename}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : model.thumbnail_path ? (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                                  Loading...
+                    {/* Models in folder */}
+                    {!isCollapsed && (
+                      <div className="space-y-2">
+                        {group.models.map((model) => {
+                          const isSelected = model.id === selectedModelId;
+                          const isLoading = model.id === loadingModelId;
+
+                          return (
+                            <button
+                              key={model.id}
+                              type="button"
+                              onClick={() => handleModelClick(model)}
+                              disabled={isLoading}
+                              className={`
+                                w-full text-left p-3 rounded transition-colors
+                                ${
+                                  isSelected
+                                    ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
+                                    : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
+                                }
+                                ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
+                              `}
+                            >
+                              <div className="flex gap-3">
+                                {/* Thumbnail column */}
+                                <div className="flex-shrink-0 w-20 h-20 bg-gray-600 rounded overflow-hidden">
+                                  {thumbnailUrls.get(model.id) ? (
+                                    <img
+                                      src={thumbnailUrls.get(model.id)}
+                                      alt={model.filename}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : model.thumbnail_path ? (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                      Loading...
+                                    </div>
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                      No preview
+                                    </div>
+                                  )}
                                 </div>
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                                  No preview
-                                </div>
-                              )}
-                            </div>
 
-                            {/* Info column */}
-                            <div className="flex-1 flex flex-col gap-1 min-w-0">
-                              <div className="text-sm text-gray-200 font-medium break-words">
-                                {model.filename}
+                                {/* Info column */}
+                                <div className="flex-1 flex flex-col gap-1 min-w-0">
+                                  <div className="text-sm text-gray-200 font-medium break-words">
+                                    {model.filename}
+                                  </div>
+                                  {isLoading && (
+                                    <div className="text-xs text-blue-400">Loading...</div>
+                                  )}
+                                </div>
                               </div>
-                              {isLoading && (
-                                <div className="text-xs text-blue-400">Loading...</div>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -42,6 +42,7 @@ export default function VisualizePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingProgress, setRecordingProgress] = useState(0);
   const viewerRef = useRef<MuJoCoViewerRef>(null);
+  const [isPlaybackControlsExpanded, setIsPlaybackControlsExpanded] = useState(true);
 
   // Playback loop - advance frames when playing
   // Use the longest trajectory to determine max frames
@@ -319,32 +320,40 @@ export default function VisualizePage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Sidebar */}
-        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
+        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-scroll flex-shrink-0">
           {/* Playback Controls - Always visible */}
-          <div className="border-b border-gray-700 bg-gray-750">
-            <div className="p-4">
-              <h3 className="text-sm font-semibold text-white mb-3">Playback Controls</h3>
+          <div className="border-b border-gray-700">
+            <div className="p-3">
+              <button
+                onClick={() => setIsPlaybackControlsExpanded(!isPlaybackControlsExpanded)}
+                className="w-full flex items-center justify-between text-left"
+              >
+                <h2 className="text-lg font-semibold text-white">Playback Controls</h2>
+                <span className="text-gray-400">{isPlaybackControlsExpanded ? '▼' : '▶'}</span>
+              </button>
 
-              {/* Timeline Slider */}
-              <div className="mb-4">
-                <label htmlFor="timeline-slider" className="block text-xs font-medium text-gray-300 mb-2">Timeline</label>
-                <input
-                  id="timeline-slider"
-                  type="range"
-                  min="0"
-                  max={maxFrameCount > 0 ? maxFrameCount - 1 : 0}
-                  value={maxFrameCount > 0 ? Math.floor(currentFrame) : 0}
-                  onChange={(e) => handleFrameChange(parseInt(e.target.value))}
-                  disabled={loadedTrajectories.length === 0}
-                  aria-label="Timeline scrubber"
-                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>{maxFrameCount > 0 ? (currentFrame / primaryFrameRate).toFixed(2) : '0.00'}s</span>
-                  <span>Frame {maxFrameCount > 0 ? Math.floor(currentFrame) + 1 : 0} / {maxFrameCount}</span>
-                  <span>{maxFrameCount > 0 ? (maxFrameCount / primaryFrameRate).toFixed(2) : '0.00'}s</span>
-                </div>
-              </div>
+              {isPlaybackControlsExpanded && (
+                <div className="space-y-4">
+                  {/* Timeline Slider */}
+                  <div className="mt-3 mb-4">
+                    <label htmlFor="timeline-slider" className="block text-xs font-medium text-gray-300 mb-2">Timeline</label>
+                    <input
+                      id="timeline-slider"
+                      type="range"
+                      min="0"
+                      max={maxFrameCount > 0 ? maxFrameCount - 1 : 0}
+                      value={maxFrameCount > 0 ? Math.floor(currentFrame) : 0}
+                      onChange={(e) => handleFrameChange(parseInt(e.target.value))}
+                      disabled={loadedTrajectories.length === 0}
+                      aria-label="Timeline scrubber"
+                      className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                      <span>{maxFrameCount > 0 ? (currentFrame / primaryFrameRate).toFixed(2) : '0.00'}s</span>
+                      <span>Frame {maxFrameCount > 0 ? Math.floor(currentFrame) + 1 : 0} / {maxFrameCount}</span>
+                      <span>{maxFrameCount > 0 ? (maxFrameCount / primaryFrameRate).toFixed(2) : '0.00'}s</span>
+                    </div>
+                  </div>
 
               {/* Control Buttons */}
               <div className="flex flex-col gap-2 mb-4">
@@ -420,11 +429,13 @@ export default function VisualizePage() {
                   </div>
                 </div>
               </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Video Controls Section */}
-          <div className="border-b border-gray-700 p-4">
+          <div className="border-b border-gray-700">
             <VideoControls
               cameras={cameras}
               activeCamera={activeCamera}

@@ -28,11 +28,16 @@ export default function RootLayout({
     <html lang="en">
       <head>
         {process.env.NODE_ENV === "development" && (
+          <>
           <Script
             src="//unpkg.com/react-grab/dist/index.global.js"
-            crossOrigin="anonymous"
             strategy="beforeInteractive"
           />
+          <Script
+            src="//unpkg.com/@react-grab/cursor/dist/client.global.js"
+            strategy="lazyOnload"
+          />
+        </>
         )}
       </head>
       <body

@@ -30,10 +30,10 @@ export default function VideoControls({
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
-    <div className="p-4">
+    <div className="p-3">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between text-left mb-3"
+        className="w-full flex items-center justify-between text-left"
       >
         <h2 className="text-lg font-semibold text-white">Video & Camera</h2>
         <span className="text-gray-400">{isExpanded ? '▼' : '▶'}</span>
