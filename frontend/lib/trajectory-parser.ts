@@ -10,9 +10,6 @@ export interface TrajectoryData {
   qpos: Float64Array[];  // Array of qpos arrays, one per frame
   frameRate: number;     // Frames per second
   frameCount: number;    // Total number of frames
-  extraParams?: {        // Additional parameters (act, xpos, etc.)
-    [key: string]: Float64Array[];  // Each parameter is an array of frames
-  };
 }
 
 /**
@@ -114,76 +111,19 @@ export async function parseNPZ(blob: Blob): Promise<TrajectoryData> {
     if (framerateKey) {
       try {
         const frData: NpyArray = await loadNpy(unzipped[framerateKey]);
-        const frArray = frData.data;
-        if (frArray.length > 0) {
-          const value = frArray[0];
-          if (typeof value === 'bigint') {
-            frameRate = Number(value);  // ✅ 显式转换 BigInt → Number
-          } else {
-            frameRate = value as number;
-          }
-        }
+        const frArray = frData.data as Float64Array;
+        frameRate = frArray[0];
       } catch (error) {
         console.warn('Could not parse framerate from NPZ, using default 30 fps');
       }
     }
 
-    // Parse extra parameters (act, xpos, etc.)
-    const extraParams: { [key: string]: Float64Array[] } = {};
-    const extraParamKeys = Object.keys(unzipped).filter(k => {
-      const keyName = k.replace('.npy', '');
-      // Exclude qpos and framerate keys
-      return !keyName.startsWith('qpos') && 
-             !['framerate', 'frame_rate'].includes(keyName);
-    });
-
-    for (const key of extraParamKeys) {
-      try {
-        const paramData: NpyArray = await loadNpy(unzipped[key]);
-        const paramShape = paramData.shape;
-        
-        // Check if it's a time-series data [time, dim] or [time]
-        if (paramShape.length === 2 && paramShape[0] === frameCount) {
-          // [time, dim] format
-          const [, paramSize] = paramShape;
-          const flatData = paramData.data as Float64Array;
-          const paramArrays: Float64Array[] = [];
-          
-          for (let i = 0; i < frameCount; i++) {
-            const start = i * paramSize;
-            const end = start + paramSize;
-            paramArrays.push(flatData.slice(start, end));
-          }
-          
-          extraParams[key.replace('.npy', '')] = paramArrays;
-          console.log(`[TRAJECTORY PARSER] Found extra parameter: ${key} (${frameCount} x ${paramSize})`);
-        } else if (paramShape.length === 1 && paramShape[0] === frameCount) {
-          // [time] format - convert to [time, 1]
-          const flatData = paramData.data as Float64Array;
-          const paramArrays: Float64Array[] = [];
-          
-          for (let i = 0; i < frameCount; i++) {
-            paramArrays.push(new Float64Array([flatData[i]]));
-          }
-          
-          extraParams[key.replace('.npy', '')] = paramArrays;
-          console.log(`[TRAJECTORY PARSER] Found extra parameter: ${key} (${frameCount} x 1)`);
-        }
-      } catch (error) {
-        console.warn(`Could not parse extra parameter ${key}:`, error);
-      }
-    }
-
     console.log(`Parsed NPZ trajectory: ${frameCount} frames, ${qposSize} qpos dimensions, ${frameRate} fps`);
-    if (Object.keys(extraParams).length > 0) {
-      console.log(`  Extra parameters: ${Object.keys(extraParams).join(', ')}`);
-    }
 
     return {
       qpos,
       frameRate,
-      frameCount,
-      extraParams: Object.keys(extraParams).length > 0 ? extraParams : undefined
+      frameCount
     };
   } catch (error) {
     console.error('Error parsing NPZ file:', error);

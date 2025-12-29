@@ -7,8 +7,6 @@ interface LoadedTrajectory {
   name: string;
   data: any;
   isGhost: boolean;
-  visible?: boolean;
-  startFrame?: number;
   source: 'server' | 'local';
 }
 

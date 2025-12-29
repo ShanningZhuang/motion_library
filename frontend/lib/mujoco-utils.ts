@@ -548,7 +548,7 @@ export function createGhostBodies(
         
         // Clone and modify material
         const ghostMaterial = (ghostMesh.material as THREE.Material).clone();
-
+        
         if (ghostMaterial instanceof THREE.MeshPhongMaterial) {
           ghostMaterial.color.setHex(ghostColor);
           ghostMaterial.transparent = true;

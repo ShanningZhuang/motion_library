@@ -9,8 +9,6 @@ interface LoadedTrajectory {
   name: string;
   data: any;
   isGhost: boolean;
-  visible?: boolean;
-  startFrame?: number;
   source: 'server' | 'local';
 }
 
@@ -21,11 +19,7 @@ interface TrajectorySelectorProps {
   localUploadDisabled?: boolean;
   loadedTrajectories?: LoadedTrajectory[];
   onToggleGhost?: (id: string) => void;
-  onToggleVisible?: (id: string) => void;
-  onStartFrameChange?: (id: string, startFrame: number) => void;
   onRemoveTrajectory?: (id: string) => void;
-  currentFrame?: number;
-  primaryFrameRate?: number;
 }
 
 interface CategoryGroup {
@@ -40,11 +34,7 @@ export default function TrajectorySelector({
   localUploadDisabled = false,
   loadedTrajectories = [],
   onToggleGhost,
-  onToggleVisible,
-  onStartFrameChange,
   onRemoveTrajectory,
-  currentFrame = 0,
-  primaryFrameRate = 30,
 }: TrajectorySelectorProps) {
   const [trajectories, setTrajectories] = useState<TrajectoryMetadata[]>([]);
   const [loading, setLoading] = useState(true);
@@ -342,14 +332,14 @@ export default function TrajectorySelector({
         </button>
         {isExpanded && (
           <div className="mt-4">
-        <div className="text-red-400 text-sm">{error}</div>
-        <button
-          type="button"
-          onClick={loadTrajectories}
-          className="mt-2 text-blue-400 hover:text-blue-300 text-sm"
-        >
-          Retry
-        </button>
+            <div className="text-red-400 text-sm">{error}</div>
+            <button
+              type="button"
+              onClick={loadTrajectories}
+              className="mt-2 text-blue-400 hover:text-blue-300 text-sm"
+            >
+              Retry
+            </button>
           </div>
         )}
       </div>
@@ -375,21 +365,21 @@ export default function TrajectorySelector({
           {/* Server Trajectory Upload Button */}
           <div>
             <h4 className="text-xs font-medium text-gray-400 mb-2">Server Trajectories</h4>
-        <button
-          type="button"
-          onClick={openUploadModal}
+            <button
+              type="button"
+              onClick={openUploadModal}
               className="w-full flex items-center justify-center gap-1 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-        >
-          <Upload className="w-4 h-4" />
+            >
+              <Upload className="w-4 h-4" />
               Upload to Server
-        </button>
-      </div>
+            </button>
+          </div>
 
-      {error && (
+          {error && (
             <div className="text-red-400 text-xs bg-red-900 bg-opacity-20 p-2 rounded">
-          {error}
-        </div>
-      )}
+              {error}
+            </div>
+          )}
 
           {/* Local Trajectory Upload */}
           {onLocalFileSelect && (
@@ -430,116 +420,39 @@ export default function TrajectorySelector({
                 Loaded Trajectories ({loadedTrajectories.length})
               </h4>
               <div className="space-y-2">
-                {loadedTrajectories.map(traj => {
-                  const frameCount = traj.data?.frameCount || 0;
-                  const startFrame = traj.startFrame || 0;
-                  const frameRate = traj.data?.frameRate || 30;
-                  const isVisible = traj.visible !== false;
-                  
-                  // Calculate current trajectory frame using time-based synchronization
-                  // 1. Calculate start time based on startFrame
-                  const startTime = startFrame / frameRate;
-                  
-                  // 2. Convert global currentFrame to time using primary frame rate
-                  const currentTime = currentFrame / primaryFrameRate;
-                  
-                  // 3. Calculate trajectory time
-                  const trajectoryTime = currentTime + startTime;
-                  
-                  // 4. Convert time back to trajectory frame based on trajectory's frame rate
-                  const currentTrajectoryFrame = Math.min(
-                    Math.max(0, Math.floor(trajectoryTime * frameRate)),
-                    frameCount - 1
-                  );
-                  
-                  return (
-                    <div key={traj.id} className="p-2 bg-gray-700 rounded space-y-2">
-                      {/* 第一行：控制按钮和名称 */}
-                      <div className="flex items-center gap-2">
-                        {/* View 按钮 */}
-                        <button
-                          onClick={() => onToggleVisible?.(traj.id)}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${
-                            isVisible
-                              ? 'bg-green-600 hover:bg-green-700 text-white'
-                              : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
-                          }`}
-                          title={isVisible ? 'Hide trajectory' : 'Show trajectory'}
-                        >
-                          View
-                        </button>
-                        
-                        {/* Ghost 按钮 */}
-                        <button
-                          onClick={() => onToggleGhost?.(traj.id)}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${
-                            traj.isGhost
-                              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                              : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
-                          }`}
-                          title={traj.isGhost ? 'Disable ghost mode' : 'Enable ghost mode (semi-transparent)'}
-                        >
-                          Ghost
-                        </button>
+                {loadedTrajectories.map(traj => (
+                  <div key={traj.id} className="flex items-center gap-2 p-2 bg-gray-700 rounded">
+                    {/* Ghost checkbox */}
+                    <input
+                      type="checkbox"
+                      checked={traj.isGhost}
+                      onChange={() => onToggleGhost?.(traj.id)}
+                      className="w-4 h-4"
+                      title="Render as ghost (semi-transparent)"
+                    />
 
-                        {/* Trajectory name */}
-                        <span className="flex-1 text-xs text-gray-200 truncate" title={traj.name}>
-                          {traj.name}
-                        </span>
+                    {/* Trajectory name */}
+                    <span className="flex-1 text-xs text-gray-200 truncate" title={traj.name}>
+                      {traj.name}
+                    </span>
 
-                        {/* Source badge */}
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          traj.source === 'server' ? 'bg-blue-600' : 'bg-green-600'
-                        }`}>
-                          {traj.source}
-                        </span>
+                    {/* Source badge */}
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      traj.source === 'server' ? 'bg-blue-600' : 'bg-green-600'
+                    }`}>
+                      {traj.source}
+                    </span>
 
-                        {/* Remove button */}
-                        <button
-                          onClick={() => onRemoveTrajectory?.(traj.id)}
-                          className="text-red-400 hover:text-red-300 text-sm"
-                          title="Remove trajectory"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      {/* 第二行：Timeline Slider */}
-                      {frameCount > 0 && (
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-                            <span>{frameRate.toFixed(1)} fps</span>
-                            <span>Start: Frame {startFrame + 1} / {frameCount}</span>
-                          </div>
-                          
-                          {/* Timeline Slider - 和PlaybackControls一样的样式 */}
-                          <div className="relative">
-                            <input
-                              type="range"
-                              min="0"
-                              max={frameCount - 1}
-                              value={startFrame}
-                              onChange={(e) => {
-                                const newStartFrame = parseInt(e.target.value, 10);
-                                onStartFrameChange?.(traj.id, newStartFrame);
-                              }}
-                              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-                              style={{
-                                background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(startFrame / Math.max(frameCount - 1, 1)) * 100}%, #4b5563 ${(startFrame / Math.max(frameCount - 1, 1)) * 100}%, #4b5563 100%)`
-                              }}
-                              title="Drag to set start frame"
-                            />
-                            <div className="flex justify-between text-xs text-gray-400 mt-1">
-                              <span>Frame 1</span>
-                              <span>Current: {Math.floor(currentTrajectoryFrame) + 1}</span>
-                              <span>Frame {frameCount}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                    {/* Remove button */}
+                    <button
+                      onClick={() => onRemoveTrajectory?.(traj.id)}
+                      className="text-red-400 hover:text-red-300 text-sm"
+                      title="Remove trajectory"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -652,106 +565,106 @@ export default function TrajectorySelector({
         </div>
       )}
 
-      {trajectories.length === 0 ? (
-        <div className="text-gray-400 text-sm">No trajectories available</div>
-      ) : (
-        <div className="space-y-3">
-          {categoryGroups.map((group) => {
-            const isCollapsed = collapsedCategories.has(group.categoryName);
+          {trajectories.length === 0 ? (
+            <div className="text-gray-400 text-sm">No trajectories available</div>
+          ) : (
+            <div className="space-y-3">
+              {categoryGroups.map((group) => {
+                const isCollapsed = collapsedCategories.has(group.categoryName);
 
-            return (
-              <div key={group.categoryName} className="space-y-2">
-                {/* Category Header */}
-                <button
-                  type="button"
-                  onClick={() => toggleCategory(group.categoryName)}
-                  className="w-full flex items-center gap-2 p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
-                >
-                  {/* Arrow icon */}
-                  <svg
-                    className={`w-4 h-4 text-gray-400 transition-transform ${
-                      isCollapsed ? '-rotate-90' : ''
-                    }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium text-gray-200">
-                    {group.categoryName}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    ({group.trajectories.length})
-                  </span>
-                </button>
+                return (
+                  <div key={group.categoryName} className="space-y-2">
+                    {/* Category Header */}
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(group.categoryName)}
+                      className="w-full flex items-center gap-2 p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                    >
+                      {/* Arrow icon */}
+                      <svg
+                        className={`w-4 h-4 text-gray-400 transition-transform ${
+                          isCollapsed ? '-rotate-90' : ''
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                      <span className="text-sm font-medium text-gray-200">
+                        {group.categoryName}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        ({group.trajectories.length})
+                      </span>
+                    </button>
 
-                {/* Trajectories in category */}
-                {!isCollapsed && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {group.trajectories.map((trajectory) => {
-                      const isSelected = trajectory.id === selectedTrajectoryId;
-                      const isLoading = trajectory.id === loadingTrajectoryId;
+                    {/* Trajectories in category */}
+                    {!isCollapsed && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {group.trajectories.map((trajectory) => {
+                          const isSelected = trajectory.id === selectedTrajectoryId;
+                          const isLoading = trajectory.id === loadingTrajectoryId;
 
-                      return (
-                        <button
-                          key={trajectory.id}
-                          type="button"
-                          onClick={() => handleTrajectoryClick(trajectory)}
-                          disabled={isLoading}
-                          className={`
-                            w-full text-left p-3 rounded transition-colors
-                            ${
-                              isSelected
-                                ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
-                                : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
-                            }
-                            ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
-                          `}
-                        >
-                          <div className="flex flex-col gap-2">
-                            {/* Thumbnail preview */}
-                            <div className="w-full aspect-square bg-gray-600 rounded overflow-hidden">
-                              {thumbnailUrls.get(trajectory.id) ? (
-                                <img
-                                  src={thumbnailUrls.get(trajectory.id)}
-                                  alt={trajectory.filename}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : trajectory.thumbnail_path ? (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                                  Loading...
+                          return (
+                            <button
+                              key={trajectory.id}
+                              type="button"
+                              onClick={() => handleTrajectoryClick(trajectory)}
+                              disabled={isLoading}
+                              className={`
+                                w-full text-left p-3 rounded transition-colors
+                                ${
+                                  isSelected
+                                    ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
+                                    : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
+                                }
+                                ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
+                              `}
+                            >
+                              <div className="flex flex-col gap-2">
+                                {/* Thumbnail preview */}
+                                <div className="w-full aspect-square bg-gray-600 rounded overflow-hidden">
+                                  {thumbnailUrls.get(trajectory.id) ? (
+                                    <img
+                                      src={thumbnailUrls.get(trajectory.id)}
+                                      alt={trajectory.filename}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : trajectory.thumbnail_path ? (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                      Loading...
+                                    </div>
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                      No preview
+                                    </div>
+                                  )}
                                 </div>
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                                  No preview
-                                </div>
-                              )}
-                            </div>
 
-                            {/* Info section */}
-                            <div className="flex flex-col gap-1">
-                              <div className="text-xs text-gray-200 font-medium break-words">
-                                {trajectory.filename}
+                                {/* Info section */}
+                                <div className="flex flex-col gap-1">
+                                  <div className="text-xs text-gray-200 font-medium break-words">
+                                    {trajectory.filename}
+                                  </div>
+                                  {isLoading && (
+                                    <div className="text-xs text-blue-400">Loading...</div>
+                                  )}
+                                </div>
                               </div>
-                              {isLoading && (
-                                <div className="text-xs text-blue-400">Loading...</div>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
             </div>
           )}
         </div>
