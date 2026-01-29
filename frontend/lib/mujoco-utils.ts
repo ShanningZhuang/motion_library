@@ -450,6 +450,75 @@ export function loadMuJoCoScene(
 }
 
 /**
+ * Create muscle rendering instances (cylinders and spheres) for a trajectory
+ * This creates independent InstancedMesh objects for tendon/muscle visualization
+ * 
+ * @param model - MuJoCo model
+ * @param parentGroup - THREE.js group to attach the instances to
+ * @param color - Color for the muscles (default: red)
+ * @returns Object containing the created cylinders and spheres InstancedMesh
+ */
+export function createMuscleInstances(
+  model: any,
+  parentGroup: THREE.Group,
+  color: number = 0xff4444
+): { cylinders: THREE.InstancedMesh; spheres: THREE.InstancedMesh } {
+  // Calculate required instance counts
+  let maxCylinders = 0;
+  let maxSpheres = 0;
+
+  const estimatedWrapsPerTendon = 20;
+  if (model.ntendon > 0) {
+    maxCylinders = model.ntendon * estimatedWrapsPerTendon;
+    maxSpheres = model.ntendon * (estimatedWrapsPerTendon + 1);
+  }
+
+  // Count flex vertex instances
+  for (let i = 0; i < model.nflex; i++) {
+    maxSpheres += model.flex_vertnum[i];
+  }
+
+  // Ensure minimum of 1 instance
+  maxCylinders = Math.max(1, maxCylinders);
+  maxSpheres = Math.max(1, maxSpheres);
+
+  console.log(`[MUSCLE] Creating muscle instances for trajectory: ${maxCylinders} cylinders, ${maxSpheres} spheres`);
+
+  // Create material
+  const muscleMat = new THREE.MeshPhongMaterial({
+    color: new THREE.Color(color),
+    shininess: 30,
+    specular: new THREE.Color(0.3, 0.3, 0.3)
+  });
+
+  // Create cylinders
+  const cylinders = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(1, 1, 1),
+    muscleMat,
+    maxCylinders
+  );
+  cylinders.receiveShadow = true;
+  cylinders.castShadow = true;
+  cylinders.count = 0;
+  parentGroup.add(cylinders);
+
+  // Create spheres
+  const spheres = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(1, 10, 10),
+    muscleMat,
+    maxSpheres
+  );
+  spheres.receiveShadow = true;
+  spheres.castShadow = true;
+  spheres.count = 0;
+  parentGroup.add(spheres);
+
+  console.log(`[MUSCLE] Created muscle instances on ${parentGroup.name}`);
+
+  return { cylinders, spheres };
+}
+
+/**
  * Apply qpos to MuJoCo model and update THREE.js body transforms
  * Reusable function for updating trajectory visualization (both real and ghost)
  *

@@ -20,6 +20,7 @@ interface LoadedTrajectory {
   startFrame: number; // 起始帧（该轨迹从第几帧开始显示）
   source: 'server' | 'local';
   customFrameRate?: number; // 用户自定义帧率（覆盖data.frameRate）
+  showMuscles: boolean; // 是否显示肌肉渲染
 }
 
 export default function VisualizePage() {
@@ -123,7 +124,8 @@ export default function VisualizePage() {
         isGhost: false,
         visible: true,
         startFrame: 0,
-        source: 'server'
+        source: 'server',
+        showMuscles: false
       };
 
       setLoadedTrajectories(prev => [...prev, newTrajectory]);
@@ -149,7 +151,8 @@ export default function VisualizePage() {
         isGhost: false,
         visible: true,
         startFrame: 0,
-        source: 'local'
+        source: 'local',
+        showMuscles: false
       };
 
       setLoadedTrajectories(prev => [...prev, newTrajectory]);
@@ -165,6 +168,15 @@ export default function VisualizePage() {
     setLoadedTrajectories(prev =>
       prev.map(traj =>
         traj.id === id ? { ...traj, isGhost: !traj.isGhost } : traj
+      )
+    );
+  };
+
+  // Toggle muscle rendering for a trajectory
+  const handleToggleMuscles = (id: string) => {
+    setLoadedTrajectories(prev =>
+      prev.map(traj =>
+        traj.id === id ? { ...traj, showMuscles: !traj.showMuscles } : traj
       )
     );
   };
@@ -506,6 +518,7 @@ export default function VisualizePage() {
               localUploadDisabled={!selectedModel}
               loadedTrajectories={loadedTrajectories}
               onToggleGhost={handleToggleGhost}
+              onToggleMuscles={handleToggleMuscles}
               onToggleVisible={handleToggleVisible}
               onStartFrameChange={handleStartFrameChange}
               onRemoveTrajectory={handleRemoveTrajectory}

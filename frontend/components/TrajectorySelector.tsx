@@ -13,6 +13,7 @@ interface LoadedTrajectory {
   startFrame?: number;
   source: 'server' | 'local';
   customFrameRate?: number;
+  showMuscles?: boolean;
 }
 
 interface TrajectorySelectorProps {
@@ -22,6 +23,7 @@ interface TrajectorySelectorProps {
   localUploadDisabled?: boolean;
   loadedTrajectories?: LoadedTrajectory[];
   onToggleGhost?: (id: string) => void;
+  onToggleMuscles?: (id: string) => void;
   onToggleVisible?: (id: string) => void;
   onStartFrameChange?: (id: string, startFrame: number) => void;
   onFrameRateChange?: (id: string, frameRate: number) => void;
@@ -42,6 +44,7 @@ export default function TrajectorySelector({
   localUploadDisabled = false,
   loadedTrajectories = [],
   onToggleGhost,
+  onToggleMuscles,
   onToggleVisible,
   onStartFrameChange,
   onFrameRateChange,
@@ -483,6 +486,19 @@ export default function TrajectorySelector({
                           title={traj.isGhost ? 'Disable ghost mode' : 'Enable ghost mode (semi-transparent)'}
                         >
                           Ghost
+                        </button>
+
+                        {/* Muscles 按钮 */}
+                        <button
+                          onClick={() => onToggleMuscles?.(traj.id)}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                            traj.showMuscles
+                              ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                              : 'bg-gray-600 hover:bg-gray-500 text-gray-300'
+                          }`}
+                          title={traj.showMuscles ? 'Hide muscles/tendons' : 'Show muscles/tendons'}
+                        >
+                          Muscle
                         </button>
 
                     {/* Trajectory name */}

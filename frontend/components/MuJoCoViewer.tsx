@@ -12,7 +12,7 @@ import {
   MuJoCoModule,
 } from '@/lib/mujoco-loader';
 import { modelApi, ModelMetadata } from '@/lib/api';
-import { loadMuJoCoScene, applyQposAndUpdateBodies, createGhostBodies } from '@/lib/mujoco-utils';
+import { loadMuJoCoScene, applyQposAndUpdateBodies, createGhostBodies, createMuscleInstances } from '@/lib/mujoco-utils';
 import { MuJoCoCamera } from './VideoControls';
 import {
   createRecordingRenderer,
@@ -51,6 +51,7 @@ interface LoadedTrajectory {
   startFrame?: number;
   customFrameRate?: number;
   source: 'server' | 'local';
+  showMuscles?: boolean;
 }
 
 interface MuJoCoViewerProps {
@@ -94,6 +95,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
     bodies: (THREE.Group | null)[];
     data: any;
     root: THREE.Group;
+    cylinders?: THREE.InstancedMesh;
+    spheres?: THREE.InstancedMesh;
   }>>(new Map());
 
   // Track trajectories and current frame in refs so animation loop can access latest values
@@ -331,10 +334,23 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         if (bodies[0]) {
           root.add(bodies[0]);
         }
+
+        // Create muscle instances for this trajectory
+        let cylinders: THREE.InstancedMesh | undefined;
+        let spheres: THREE.InstancedMesh | undefined;
+        
+        if (traj.showMuscles) {
+          const muscleColor = traj.isGhost ? 0x6688ff : 0xff4444; // Blue for ghost, red for normal
+          const muscleInstances = createMuscleInstances(modelRef.current, root, muscleColor);
+          cylinders = muscleInstances.cylinders;
+          spheres = muscleInstances.spheres;
+          console.log(`[TRAJECTORIES] Created muscle instances for trajectory: ${traj.name}`);
+        }
+
         sceneRef.current!.add(root);
 
-        trajectoryBodiesMap.current.set(traj.id, { bodies, data, root });
-        console.log(`[TRAJECTORIES] Added trajectory: ${traj.name} (ghost: ${traj.isGhost}), bodies cloned without ground/tendons`);
+        trajectoryBodiesMap.current.set(traj.id, { bodies, data, root, cylinders, spheres });
+        console.log(`[TRAJECTORIES] Added trajectory: ${traj.name} (ghost: ${traj.isGhost}, muscles: ${traj.showMuscles}), bodies cloned without ground/tendons`);
       } else {
         // Update ghost appearance if isGhost changed
         // Only modify regular meshes, skip InstancedMesh and Reflector
@@ -363,7 +379,42 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
             obj.material.needsUpdate = true;
           }
         });
-        console.log(`[TRAJECTORIES] Updated ghost appearance for: ${traj.name} (ghost: ${traj.isGhost})`);
+
+        // Handle muscle rendering toggle
+        if (traj.showMuscles && !existing.cylinders) {
+          // Need to create muscle instances
+          const muscleColor = traj.isGhost ? 0x6688ff : 0xff4444;
+          const muscleInstances = createMuscleInstances(modelRef.current!, existing.root, muscleColor);
+          existing.cylinders = muscleInstances.cylinders;
+          existing.spheres = muscleInstances.spheres;
+          console.log(`[TRAJECTORIES] Created muscle instances for trajectory: ${traj.name}`);
+        } else if (!traj.showMuscles && existing.cylinders) {
+          // Need to remove muscle instances
+          if (existing.cylinders) {
+            existing.root.remove(existing.cylinders);
+            existing.cylinders.geometry.dispose();
+            (existing.cylinders.material as THREE.Material).dispose();
+            existing.cylinders = undefined;
+          }
+          if (existing.spheres) {
+            existing.root.remove(existing.spheres);
+            existing.spheres.geometry.dispose();
+            (existing.spheres.material as THREE.Material).dispose();
+            existing.spheres = undefined;
+          }
+          console.log(`[TRAJECTORIES] Removed muscle instances for trajectory: ${traj.name}`);
+        } else if (traj.showMuscles && existing.cylinders) {
+          // Update muscle color if ghost status changed
+          const muscleColor = traj.isGhost ? 0x6688ff : 0xff4444;
+          if (existing.cylinders.material instanceof THREE.MeshPhongMaterial) {
+            existing.cylinders.material.color.setHex(muscleColor);
+          }
+          if (existing.spheres && existing.spheres.material instanceof THREE.MeshPhongMaterial) {
+            existing.spheres.material.color.setHex(muscleColor);
+          }
+        }
+
+        console.log(`[TRAJECTORIES] Updated ghost appearance for: ${traj.name} (ghost: ${traj.isGhost}, muscles: ${traj.showMuscles})`);
       }
     });
 
@@ -986,14 +1037,21 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           const qposData = traj.data.qpos[trajectoryFrame];
 
           if (qposData && qposData.length === modelRef.current!.nq) {
-            console.log(`[TENDON DEBUG] Render loop: Updating trajectory ${index} (${traj.name}, root: ${entry.root.name}), passing undefined as mujocoRoot`);
+            // Pass root only if showMuscles is enabled for muscle rendering
+            const rootForMuscles = (traj.showMuscles && entry.cylinders && entry.spheres) ? entry.root : undefined;
+            if (rootForMuscles) {
+              // Attach muscle instances to root if not already done
+              (rootForMuscles as any).cylinders = entry.cylinders;
+              (rootForMuscles as any).spheres = entry.spheres;
+            }
+            console.log(`[MUSCLE DEBUG] Render loop: Updating trajectory ${index} (${traj.name}), muscles: ${traj.showMuscles}, root: ${rootForMuscles ? 'provided' : 'undefined'}`);
             applyQposAndUpdateBodies(
               qposData,
               mujocoRef.current,
               modelRef.current,
               entry.data,
               entry.bodies,
-              undefined, // Don't pass root - skip tendon/flex rendering on trajectory clones
+              rootForMuscles, // Pass root only if muscles should be rendered
               false // swizzle=false for Y-up coordinate system
             );
           }
@@ -1147,13 +1205,20 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
 
             const qposData = traj.data.qpos[trajectoryFrameIndex];
             if (qposData && qposData.length === modelRef.current!.nq) {
+              // Pass root only if showMuscles is enabled for muscle rendering
+              const rootForMuscles = (traj.showMuscles && entry.cylinders && entry.spheres) ? entry.root : undefined;
+              if (rootForMuscles) {
+                // Attach muscle instances to root if not already done
+                (rootForMuscles as any).cylinders = entry.cylinders;
+                (rootForMuscles as any).spheres = entry.spheres;
+              }
               applyQposAndUpdateBodies(
                 qposData,
                 mujocoRef.current,
                 modelRef.current,
                 entry.data,
                 entry.bodies,
-                undefined, // Don't pass root - skip tendon/flex rendering on trajectory clones
+                rootForMuscles, // Pass root only if muscles should be rendered
                 false
               );
             }
