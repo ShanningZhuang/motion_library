@@ -10,15 +10,17 @@ interface LoadedTrajectory {
   visible?: boolean;
   startFrame?: number;
   source: 'server' | 'local';
+  showMuscles?: boolean;
 }
 
 interface TrajectoryListProps {
   trajectories: LoadedTrajectory[];
   onToggleGhost: (id: string) => void;
+  onToggleMuscles: (id: string) => void;
   onRemove: (id: string) => void;
 }
 
-export default function TrajectoryList({ trajectories, onToggleGhost, onRemove }: TrajectoryListProps) {
+export default function TrajectoryList({ trajectories, onToggleGhost, onToggleMuscles, onRemove }: TrajectoryListProps) {
   return (
     <div className="space-y-2">
       <h3 className="text-sm font-medium text-gray-300 mb-2">
@@ -37,7 +39,16 @@ export default function TrajectoryList({ trajectories, onToggleGhost, onRemove }
             checked={traj.isGhost}
             onChange={() => onToggleGhost(traj.id)}
             className="w-4 h-4"
-            title="Render as ghost (semi-transparent)"
+            title="Ghost (semi-transparent)"
+          />
+
+          {/* Muscles checkbox */}
+          <input
+            type="checkbox"
+            checked={traj.showMuscles ?? false}
+            onChange={() => onToggleMuscles(traj.id)}
+            className="w-4 h-4"
+            title="Show muscles/tendons"
           />
 
           {/* Trajectory name */}
