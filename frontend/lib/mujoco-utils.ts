@@ -342,14 +342,42 @@ export function loadMuJoCoScene(
 
     let mesh: THREE.Mesh | any;
     if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
-      // Use Reflector for plane with subtle reflection (low opacity)
+      // Create checkerboard texture for ground plane (1.0m grid size)
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d')!;
+      
+      // Define colors: darker gray and medium gray for better contrast with background
+      const darkGray = '#2A2A2A';  // Darker gray
+      const lightGray = '#505050'; // Medium gray
+      
+      // Each tile is 1.0m, so for a 100m x 100m plane, we need 100 tiles per side
+      // In the 512x512 texture, create a clear checkerboard pattern
+      const tilesPerSide = 8; // Create a clear repeating pattern
+      const tileSize = canvas.width / tilesPerSide;
+      
+      for (let i = 0; i < tilesPerSide; i++) {
+        for (let j = 0; j < tilesPerSide; j++) {
+          ctx.fillStyle = (i + j) % 2 === 0 ? darkGray : lightGray;
+          ctx.fillRect(i * tileSize, j * tileSize, tileSize, tileSize);
+        }
+      }
+      
+      const checkerTexture = new THREE.CanvasTexture(canvas);
+      checkerTexture.wrapS = THREE.RepeatWrapping;
+      checkerTexture.wrapT = THREE.RepeatWrapping;
+      // 100m plane with 1.0m tiles = 100 tiles per side, texture repeats to fill
+      checkerTexture.repeat.set(100 / tilesPerSide, 100 / tilesPerSide);
+      
+      // Use Reflector for ground plane with checkerboard texture and reflection
+      const Reflector = require('./Reflector').Reflector;
       mesh = new Reflector(new THREE.PlaneGeometry(100, 100), {
         clipBias: 0.003,
-        textureWidth: 512,
-        textureHeight: 512,
-        color: 0x333333, // Dark gray tint to reduce reflection intensity
-        opacity: 0.15,    // Very low opacity for subtle reflection effect
-        texture: texture
+        textureWidth: 1024,
+        textureHeight: 1024,
+        color: 0x888888,
+        texture: checkerTexture
       });
       if (swizzle) {
         mesh.rotateX(-Math.PI / 2);

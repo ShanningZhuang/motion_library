@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import {
   loadMuJoCo,
   loadModelFromXML,
@@ -294,9 +295,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
               if (traj.isGhost && clonedMesh.material) {
                 const ghostMaterial = (clonedMesh.material as THREE.Material).clone();
                 if (ghostMaterial instanceof THREE.MeshPhongMaterial) {
-                  ghostMaterial.color.setHex(0x4488ff); // Light blue
+                  ghostMaterial.color.setHex(0x5599FF); // Bright blue - visible on dark ground
+                  ghostMaterial.emissive.setHex(0x1144AA); // Blue glow for visibility
                   ghostMaterial.transparent = true;
-                  ghostMaterial.opacity = 0.35;
+                  ghostMaterial.opacity = 0.6; // Higher opacity for better visibility
                   ghostMaterial.depthWrite = false;
                 }
                 clonedMesh.material = ghostMaterial;
@@ -362,9 +364,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
             
             if (traj.isGhost) {
               // Apply ghost appearance
-              obj.material.color.setHex(0x4488ff); // Light blue
+              obj.material.color.setHex(0x5599FF); // Bright blue
+              obj.material.emissive.setHex(0x1144AA); // Blue glow for visibility
               obj.material.transparent = true;
-              obj.material.opacity = 0.35;
+              obj.material.opacity = 0.6;
               obj.material.depthWrite = false;
               obj.renderOrder = -1;
             } else {
@@ -643,8 +646,45 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
 
         // Set up Three.js scene
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x243447);
-        scene.fog = new THREE.Fog(0x243447, 15, 25);
+        
+        // Load HDR skybox (replace with your HDR file path)
+        // Put your HDR file in public folder, e.g., public/skybox.hdr
+        const hdrPath = '/qwantani_moon_noon_puresky_2k.hdr'; // Update this path to your HDR file
+        
+        try {
+          const rgbeLoader = new RGBELoader();
+          const hdrTexture = await rgbeLoader.loadAsync(hdrPath);
+          hdrTexture.mapping = THREE.EquirectangularReflectionMapping;
+          scene.background = hdrTexture;
+          scene.backgroundRotation = new THREE.Euler(Math.PI / 2, 0, 0); 
+
+          console.log('[SKYBOX] HDR environment loaded successfully');
+        } catch (error) {
+          console.warn('[SKYBOX] Failed to load HDR, using fallback gradient:', error);
+          
+          // Fallback to gradient background if HDR loading fails
+          const canvas = document.createElement('canvas');
+          canvas.width = 16;
+          canvas.height = 512;
+
+          const context = canvas.getContext('2d');
+          if (context) {
+            const gradient = context.createLinearGradient(0, 0, 0, 512);
+            gradient.addColorStop(0, "#4A7099");
+            gradient.addColorStop(0.15, "#6B95C4");
+            gradient.addColorStop(0.35, "#A0C2DD");
+            gradient.addColorStop(0.4, "#D5D0C8");
+            gradient.addColorStop(0.5, "#F5D5B8");
+            gradient.addColorStop(0.6, "#FFD4A8");
+
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 16, 512);
+
+            const bgTexture = new THREE.CanvasTexture(canvas);
+            scene.background = bgTexture;
+          }
+        }
+
         sceneRef.current = scene;
 
         // Get container dimensions
@@ -663,28 +703,43 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         scene.add(camera);
         cameraRef.current = camera;
 
-        // Very bright sunlight-like illumination using ambient + hemisphere
-        // No directional light - will use lights from MuJoCo XML environment if needed
-
-        // Very bright ambient light for overall scene illumination
-        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
+        // Balanced lighting for clear details and spatial depth
+        
+        // Moderate ambient light for base illumination
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
         scene.add(ambientLight);
 
-        // Strong hemisphere light for natural sky/ground lighting
+        // Hemisphere light for natural sky/ground color gradient
         const hemisphereLight = new THREE.HemisphereLight(
-          0xffffff, // Sky color (bright white)
-          0x888888, // Ground color (brighter gray for more fill)
-          1.5
+          0xe8f0ff,   // 冷蓝天空光
+          0xfff1e6,   // 淡暖地面反射
+          0.6
         );
         scene.add(hemisphereLight);
+
+        // Add directional light for depth and definition
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(3, 2, 4);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 20;
+        dirLight.shadow.camera.left = -5;
+        dirLight.shadow.camera.right = 5;
+        dirLight.shadow.camera.top = 5;
+        dirLight.shadow.camera.bottom = -5;
+        scene.add(dirLight);
 
         // Set up renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(width, height);
 
-        // Use linear color space to match MuJoCo colors exactly
-        renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+        // Use sRGB color space with tone mapping for natural appearance
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.85;
 
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
