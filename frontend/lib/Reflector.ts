@@ -93,7 +93,7 @@ export class Reflector extends Mesh {
         '\nuniform sampler2D tDiffuse; \n varying vec4 vUv3;\n' +
         shader.fragmentShader.slice(0, bodyStart) +
         shader.fragmentShader.slice(bodyStart - 1, -1) +
-        `	gl_FragColor = vec4( mix( texture2DProj( tDiffuse,  vUv3 ).rgb, gl_FragColor.rgb , 0.5), 1.0 );
+        `	gl_FragColor = vec4( mix( texture2DProj( tDiffuse,  vUv3 ).rgb, gl_FragColor.rgb , 0.85), 1.0 );
 				}`;
 
       // Set the uniforms
@@ -199,7 +199,15 @@ export class Reflector extends Mesh {
       renderer.state.buffers.depth.setMask(true); // make sure the depth buffer is writable so it can be properly cleared, see #18897
 
       if (renderer.autoClear === false) renderer.clear();
+      
+      // Temporarily hide background to avoid reflecting sky colors
+      const originalBackground = scene.background;
+      scene.background = null; // Don't render background in reflection
+      
       renderer.render(scene, virtualCamera);
+      
+      // Restore original background
+      scene.background = originalBackground;
 
       renderer.xr.enabled = currentXrEnabled;
       renderer.shadowMap.autoUpdate = currentShadowAutoUpdate;
