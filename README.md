@@ -176,6 +176,15 @@ npm install mujoco
    - Zoom and pan functionality
    - Reset camera button
 
+## SSL Certificate Renewal
+
+The SSL certificate for the domain expires every 90 days. When the site shows a certificate error, renew it manually:
+
+```bash
+sudo certbot renew --force-renewal
+sudo systemctl reload nginx
+```
+
 ## Technology Stack
 
 - **Backend**: FastAPI (Python)
