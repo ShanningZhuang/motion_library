@@ -9,7 +9,7 @@ import TrajectorySelector from '@/components/TrajectorySelector';
 import ViewerOptionsPanel from '@/components/ViewerOptions';
 import VideoControls, { MuJoCoCamera } from '@/components/VideoControls';
 import { ModelMetadata, TrajectoryMetadata } from '@/lib/api';
-import { parseTrajectory, TrajectoryData } from '@/lib/trajectory-parser';
+import { parseTrajectory, type TrajectoryData } from '@/lib/trajectory-parser';
 
 interface LoadedTrajectory {
   id: string;
