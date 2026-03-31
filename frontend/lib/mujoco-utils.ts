@@ -3,6 +3,11 @@
 
 import * as THREE from 'three';
 
+const ACTIVATION_COLOR_LOW = new THREE.Color('#fff0f3');
+const ACTIVATION_COLOR_HIGH = new THREE.Color('#ff0000');
+const MUSCLE_RADIUS_SCALE = 1;
+type ActivationArray = Float32Array | Float64Array;
+
 /**
  * Access the vector at index, swizzle for Three.js, and apply to the target THREE.Vector3
  * Converts from MuJoCo's Z-up coordinate system to Three.js's Y-up coordinate system
@@ -489,7 +494,8 @@ export function loadMuJoCoScene(
 export function createMuscleInstances(
   model: any,
   parentGroup: THREE.Group,
-  color: number = 0xff4444
+  color: number = 0xff4444,
+  useInstanceColors: boolean = false
 ): { cylinders: THREE.InstancedMesh; spheres: THREE.InstancedMesh } {
   // Calculate required instance counts
   let maxCylinders = 0;
@@ -512,12 +518,19 @@ export function createMuscleInstances(
 
   console.log(`[MUSCLE] Creating muscle instances for trajectory: ${maxCylinders} cylinders, ${maxSpheres} spheres`);
 
-  // Create material
-  const muscleMat = new THREE.MeshPhongMaterial({
-    color: new THREE.Color(color),
-    shininess: 30,
-    specular: new THREE.Color(0.3, 0.3, 0.3)
-  });
+  // Use a standard Phong path for activation mode to avoid driver-specific vertex color issues.
+  const muscleMat: THREE.Material = useInstanceColors
+    ? new THREE.MeshPhongMaterial({
+        color: new THREE.Color(0xffffff),
+        shininess: 30,
+        specular: new THREE.Color(0.25, 0.25, 0.25),
+        emissive: new THREE.Color(0.2, 0.2, 0.2),
+      })
+    : new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color),
+        shininess: 30,
+        specular: new THREE.Color(0.3, 0.3, 0.3),
+      });
 
   // Create cylinders
   const cylinders = new THREE.InstancedMesh(
@@ -525,8 +538,8 @@ export function createMuscleInstances(
     muscleMat,
     maxCylinders
   );
-  cylinders.receiveShadow = true;
-  cylinders.castShadow = true;
+  cylinders.receiveShadow = false;
+  cylinders.castShadow = false;
   cylinders.count = 0;
   parentGroup.add(cylinders);
 
@@ -536,10 +549,25 @@ export function createMuscleInstances(
     muscleMat,
     maxSpheres
   );
-  spheres.receiveShadow = true;
-  spheres.castShadow = true;
+  spheres.receiveShadow = false;
+  spheres.castShadow = false;
   spheres.count = 0;
   parentGroup.add(spheres);
+
+  if (useInstanceColors) {
+    for (let i = 0; i < maxCylinders; i++) {
+      cylinders.setColorAt(i, ACTIVATION_COLOR_LOW);
+    }
+    for (let i = 0; i < maxSpheres; i++) {
+      spheres.setColorAt(i, ACTIVATION_COLOR_LOW);
+    }
+    if (cylinders.instanceColor) {
+      cylinders.instanceColor.needsUpdate = true;
+    }
+    if (spheres.instanceColor) {
+      spheres.instanceColor.needsUpdate = true;
+    }
+  }
 
   console.log(`[MUSCLE] Created muscle instances on ${parentGroup.name}`);
 
@@ -565,7 +593,8 @@ export function applyQposAndUpdateBodies(
   data: any,
   bodies: (THREE.Group | null)[],
   mujocoRoot?: THREE.Group,
-  swizzle: boolean = false
+  swizzle: boolean = false,
+  muscleActivations?: ActivationArray
 ): void {
   // Validate qpos dimension
   if (qpos.length !== model.nq) {
@@ -594,7 +623,7 @@ export function applyQposAndUpdateBodies(
   // Update tendons and flex
   if (mujocoRoot) {
     console.log(`[TENDON DEBUG] applyQposAndUpdateBodies: mujocoRoot provided (${mujocoRoot.name}), calling drawTendonsAndFlex`);
-    drawTendonsAndFlex(mujocoRoot, model, data, swizzle);
+    drawTendonsAndFlex(mujocoRoot, model, data, swizzle, muscleActivations);
   } else {
     console.log(`[TENDON DEBUG] applyQposAndUpdateBodies: mujocoRoot is undefined, skipping tendon rendering`);
   }
@@ -680,7 +709,8 @@ export function drawTendonsAndFlex(
   mujocoRoot: THREE.Group,
   model: any,
   data: any,
-  swizzle: boolean = false
+  swizzle: boolean = false,
+  muscleActivations?: ActivationArray
 ): void {
   console.log(`[TENDON DEBUG] drawTendonsAndFlex called on root: ${mujocoRoot.name}, has cylinders: ${!!(mujocoRoot as any).cylinders}, has spheres: ${!!(mujocoRoot as any).spheres}`);
 
@@ -695,13 +725,24 @@ export function drawTendonsAndFlex(
     // We need to store it or retrieve it from the instanceMatrix array length / 16
     const cylindersMesh = (mujocoRoot as any).cylinders as THREE.InstancedMesh;
     const spheresMesh = (mujocoRoot as any).spheres as THREE.InstancedMesh;
+    const useActivationColors = !!muscleActivations && muscleActivations.length > 0;
+    const tendonActivations = useActivationColors
+      ? buildTendonActivations(model, muscleActivations!)
+      : undefined;
+    const tendonColor = new THREE.Color();
+    const avgActivationColor = new THREE.Color(ACTIVATION_COLOR_LOW);
     // instanceMatrix.array.length is maxCount * 16 (4x4 matrix)
     const maxCylinders = cylindersMesh.instanceMatrix.array.length / 16;
     const maxSpheres = spheresMesh.instanceMatrix.array.length / 16;
 
     for (let t = 0; t < model.ntendon; t++) {
       const startW = data.ten_wrapadr[t];
-      const r = model.tendon_width[t];
+      const r = model.tendon_width[t] * MUSCLE_RADIUS_SCALE;
+      if (useActivationColors) {
+        const rawAct = tendonActivations ? tendonActivations[t] : 0;
+        const actValue = THREE.MathUtils.clamp(Number.isFinite(rawAct) ? rawAct : 0, 0, 1);
+        tendonColor.copy(ACTIVATION_COLOR_LOW).lerp(ACTIVATION_COLOR_HIGH, actValue);
+      }
 
       for (let w = startW; w < startW + data.ten_wrapnum[t] - 1; w++) {
         const tendonStart = new THREE.Vector3();
@@ -715,9 +756,15 @@ export function drawTendonsAndFlex(
 
         if (validStart && numWraps < maxSpheres) {
           (mujocoRoot as any).spheres.setMatrixAt(numWraps, mat.compose(tendonStart, identityQuat, new THREE.Vector3(r, r, r)));
+          if (useActivationColors) {
+            (mujocoRoot as any).spheres.setColorAt(numWraps, tendonColor);
+          }
         }
         if (validEnd && numWraps + 1 < maxSpheres) {
           (mujocoRoot as any).spheres.setMatrixAt(numWraps + 1, mat.compose(tendonEnd, identityQuat, new THREE.Vector3(r, r, r)));
+          if (useActivationColors) {
+            (mujocoRoot as any).spheres.setColorAt(numWraps + 1, tendonColor);
+          }
         }
         if (validStart && validEnd) {
           if (numWraps < maxCylinders) {
@@ -730,11 +777,47 @@ export function drawTendonsAndFlex(
               new THREE.Vector3(r, tendonStart.distanceTo(tendonEnd), r)
             );
             (mujocoRoot as any).cylinders.setMatrixAt(numWraps, mat);
+            if (useActivationColors) {
+              (mujocoRoot as any).cylinders.setColorAt(numWraps, tendonColor);
+            }
             numWraps++;
           } else {
             console.warn(`Exceeded cylinder instance limit: ${maxCylinders}`);
           }
         }
+      }
+    }
+
+    // Fallback path: keep material color synced to raw activation average.
+    // This guarantees visible color feedback even if instancing color path is unavailable.
+    if (useActivationColors && muscleActivations && muscleActivations.length > 0) {
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i < muscleActivations.length; i++) {
+        const raw = Number(muscleActivations[i]);
+        if (Number.isFinite(raw)) {
+          sum += THREE.MathUtils.clamp(raw, 0, 1);
+          count++;
+        }
+      }
+      const avg = count > 0 ? THREE.MathUtils.clamp(sum / count, 0, 1) : 0;
+      avgActivationColor.copy(ACTIVATION_COLOR_LOW).lerp(ACTIVATION_COLOR_HIGH, avg);
+
+      const cylMat = cylindersMesh.material as THREE.Material;
+      const sphMat = spheresMesh.material as THREE.Material;
+      if (cylMat instanceof THREE.MeshBasicMaterial || cylMat instanceof THREE.MeshPhongMaterial) {
+        cylMat.color.copy(avgActivationColor);
+        if (cylMat instanceof THREE.MeshPhongMaterial) {
+          cylMat.emissive.copy(avgActivationColor).multiplyScalar(0.25);
+        }
+        cylMat.needsUpdate = true;
+      }
+      if (sphMat instanceof THREE.MeshBasicMaterial || sphMat instanceof THREE.MeshPhongMaterial) {
+        sphMat.color.copy(avgActivationColor);
+        if (sphMat instanceof THREE.MeshPhongMaterial) {
+          sphMat.emissive.copy(avgActivationColor).multiplyScalar(0.25);
+        }
+        sphMat.needsUpdate = true;
       }
     }
 
@@ -752,10 +835,13 @@ export function drawTendonsAndFlex(
 
         const vertIndex = model.flex_vertadr[i] + j;
         getPosition(data.flexvert_xpos, vertIndex, tempvertPos, swizzle);
-        const r = 0.01;
+        const r = 0.01 * MUSCLE_RADIUS_SCALE;
         mat.compose(tempvertPos, identityQuat, tempvertRad.set(r, r, r));
 
         (mujocoRoot as any).spheres.setMatrixAt(curFlexSphereInd, mat);
+        if (useActivationColors) {
+          (mujocoRoot as any).spheres.setColorAt(curFlexSphereInd, ACTIVATION_COLOR_LOW);
+        }
         curFlexSphereInd++;
       }
     }
@@ -764,6 +850,53 @@ export function drawTendonsAndFlex(
     (mujocoRoot as any).spheres.count = curFlexSphereInd;
     (mujocoRoot as any).cylinders.instanceMatrix.needsUpdate = true;
     (mujocoRoot as any).spheres.instanceMatrix.needsUpdate = true;
+    if (useActivationColors) {
+      if ((mujocoRoot as any).cylinders.instanceColor) {
+        (mujocoRoot as any).cylinders.instanceColor.needsUpdate = true;
+      }
+      if ((mujocoRoot as any).spheres.instanceColor) {
+        (mujocoRoot as any).spheres.instanceColor.needsUpdate = true;
+      }
+    }
     console.log(`[TENDON DEBUG] Updated instance counts on ${mujocoRoot.name}: ${numWraps} cylinders, ${curFlexSphereInd} spheres`);
   }
+}
+
+function buildTendonActivations(model: any, activations: ActivationArray): Float32Array {
+  const ntendon = Number(model.ntendon) || 0;
+  const nu = Number(model.nu) || activations.length;
+  const result = new Float32Array(ntendon);
+  if (ntendon <= 0 || activations.length === 0) {
+    return result;
+  }
+
+  const sums = new Float32Array(ntendon);
+  const counts = new Uint16Array(ntendon);
+  const trnid = model.actuator_trnid;
+
+  // Preferred mapping: actuator -> tendon index via actuator_trnid[a * 2].
+  if (trnid && typeof trnid.length === 'number' && trnid.length >= 2) {
+    const usableNu = Math.min(nu, activations.length, Math.floor(trnid.length / 2));
+    for (let a = 0; a < usableNu; a++) {
+      const tendonId = Number(trnid[a * 2]);
+      if (tendonId >= 0 && tendonId < ntendon) {
+        const raw = Number(activations[a]);
+        const v = THREE.MathUtils.clamp(Number.isFinite(raw) ? raw : 0, 0, 1);
+        sums[tendonId] += v;
+        counts[tendonId] += 1;
+      }
+    }
+  }
+
+  // Fallback for models without actuator_trnid mapping.
+  for (let t = 0; t < ntendon; t++) {
+    if (counts[t] > 0) {
+      result[t] = sums[t] / counts[t];
+    } else {
+      const fallback = Number(activations[Math.min(t, activations.length - 1)]);
+      result[t] = THREE.MathUtils.clamp(Number.isFinite(fallback) ? fallback : 0, 0, 1);
+    }
+  }
+
+  return result;
 }

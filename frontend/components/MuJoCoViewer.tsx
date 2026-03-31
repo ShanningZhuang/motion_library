@@ -342,8 +342,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         let spheres: THREE.InstancedMesh | undefined;
         
         if (traj.showMuscles) {
+          const hasActivationData = !!getActFrames(traj)?.length;
           const muscleColor = traj.isGhost ? 0x6688ff : 0xff4444; // Blue for ghost, red for normal
-          const muscleInstances = createMuscleInstances(modelRef.current, root, muscleColor);
+          const muscleInstances = createMuscleInstances(modelRef.current, root, muscleColor, hasActivationData);
           cylinders = muscleInstances.cylinders;
           spheres = muscleInstances.spheres;
           console.log(`[TRAJECTORIES] Created muscle instances for trajectory: ${traj.name}`);
@@ -386,8 +387,9 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         // Handle muscle rendering toggle
         if (traj.showMuscles && !existing.cylinders) {
           // Need to create muscle instances
+          const hasActivationData = !!getActFrames(traj)?.length;
           const muscleColor = traj.isGhost ? 0x6688ff : 0xff4444;
-          const muscleInstances = createMuscleInstances(modelRef.current!, existing.root, muscleColor);
+          const muscleInstances = createMuscleInstances(modelRef.current!, existing.root, muscleColor, hasActivationData);
           existing.cylinders = muscleInstances.cylinders;
           existing.spheres = muscleInstances.spheres;
           console.log(`[TRAJECTORIES] Created muscle instances for trajectory: ${traj.name}`);
@@ -408,11 +410,12 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           console.log(`[TRAJECTORIES] Removed muscle instances for trajectory: ${traj.name}`);
         } else if (traj.showMuscles && existing.cylinders) {
           // Update muscle color if ghost status changed
+          const hasActivationData = !!getActFrames(traj)?.length;
           const muscleColor = traj.isGhost ? 0x6688ff : 0xff4444;
-          if (existing.cylinders.material instanceof THREE.MeshPhongMaterial) {
+          if (!hasActivationData && existing.cylinders.material instanceof THREE.MeshPhongMaterial) {
             existing.cylinders.material.color.setHex(muscleColor);
           }
-          if (existing.spheres && existing.spheres.material instanceof THREE.MeshPhongMaterial) {
+          if (!hasActivationData && existing.spheres && existing.spheres.material instanceof THREE.MeshPhongMaterial) {
             existing.spheres.material.color.setHex(muscleColor);
           }
         }
@@ -495,6 +498,19 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
       current = current.parent;
     }
     return depth;
+  };
+
+  const getActFrames = (traj: LoadedTrajectory): Float64Array[] | undefined => {
+    const extraParams = traj.data.extraParams;
+    if (!extraParams) return undefined;
+    if (extraParams.act?.length) return extraParams.act;
+
+    const actLikeKey = Object.keys(extraParams).find((key) => {
+      const normalized = key.toLowerCase();
+      return normalized === 'act' || normalized.startsWith('act_') || normalized.endsWith('_act') || normalized.includes('activation');
+    });
+
+    return actLikeKey ? extraParams[actLikeKey] : undefined;
   };
 
   // Load cameras from MuJoCo model
@@ -1090,6 +1106,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           );
 
           const qposData = traj.data.qpos[trajectoryFrame];
+          const actFrames = getActFrames(traj);
+          const activationData = actFrames && actFrames.length > 0
+            ? actFrames[Math.min(trajectoryFrame, actFrames.length - 1)]
+            : undefined;
 
           if (qposData && qposData.length === modelRef.current!.nq) {
             // Pass root only if showMuscles is enabled for muscle rendering
@@ -1107,7 +1127,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
               entry.data,
               entry.bodies,
               rootForMuscles, // Pass root only if muscles should be rendered
-              false // swizzle=false for Y-up coordinate system
+              false, // swizzle=false for Y-up coordinate system
+              activationData
             );
           }
         });
@@ -1259,6 +1280,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
             );
 
             const qposData = traj.data.qpos[trajectoryFrameIndex];
+            const actFrames = getActFrames(traj);
+            const activationData = actFrames && actFrames.length > 0
+              ? actFrames[Math.min(trajectoryFrameIndex, actFrames.length - 1)]
+              : undefined;
             if (qposData && qposData.length === modelRef.current!.nq) {
               // Pass root only if showMuscles is enabled for muscle rendering
               const rootForMuscles = (traj.showMuscles && entry.cylinders && entry.spheres) ? entry.root : undefined;
@@ -1274,7 +1299,8 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
                 entry.data,
                 entry.bodies,
                 rootForMuscles, // Pass root only if muscles should be rendered
-                false
+                false,
+                activationData
               );
             }
           });
